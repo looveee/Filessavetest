@@ -10,6 +10,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
+  const [aiRuns, setAiRuns] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [theme, setTheme] = useState('');
@@ -21,11 +22,15 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     const p = await api.getProject(id);
     setProj(p);
     setTheme(p.name);
-    const [eps, ts, ms] = await Promise.all([
+    const [eps, ts, ms, runs] = await Promise.all([
       api.listEpisodes(id), api.listTasks({ project_id: id }), api.listMembers(id),
+      api.listAiRuns({ project_id: id }).catch(() => []),
     ]);
-    setEpisodes(eps); setTasks(ts); setMembers(ms);
+    setEpisodes(eps); setTasks(ts); setMembers(ms); setAiRuns(runs || []);
   };
+
+  // latest AI run per task_id (runs come back newest-first)
+  const runForTask = (taskId: number) => aiRuns.find((r: any) => r.task_id === taskId);
 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [id]);
 
@@ -220,6 +225,23 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 {(t.risk_flags?.length > 0) && (
                   <div className="text-xs text-orange-600 font-mono">⚠ {t.risk_flags.join(', ')}</div>
                 )}
+                {(() => {
+                  const run = runForTask(t.id);
+                  if (!run) return null;
+                  return (
+                    <div className="text-xs text-ink-500 font-mono mt-1 flex flex-wrap gap-x-3">
+                      <span>{run.provider}/{run.model || '—'}</span>
+                      <span>tok {run.input_tokens}/{run.output_tokens}</span>
+                      <span>{run.latency_ms}ms</span>
+                      {run.prompt_template_key && (
+                        <span>{run.prompt_template_key}.v{run.prompt_template_version}</span>
+                      )}
+                      <span className={run.status === 'failed' ? 'text-red-600' : 'text-emerald-600'}>
+                        {run.status}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
               {t.status === 'failed' && (
                 <button onClick={async () => { await api.retryTask(t.id); reload(); }}
@@ -244,10 +266,9 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
               </thead>
               <tbody>
                 {members.map(m => {
-                  const u = users.find(x => x.id === m.user_id);
                   return (
                     <tr key={m.id} className="border-t border-ink-200">
-                      <td className="py-2">{u ? `@${u.username}` : `user#${m.user_id}`}</td>
+                      <td className="py-2">user#{m.user_id}</td>
                       <td><span className="tag">{m.role}</span></td>
                       <td className="text-right">
                         <button onClick={async () => { await api.removeMember(id, m.user_id); reload(); }}

@@ -69,12 +69,24 @@ def validate_production_safety() -> None:
             "(e.g. \"https://app.example.com\"). Wildcard '*' is not allowed."
         )
 
-    # AI_API_KEY: not enforced when AI_PROVIDER=mock; we trust mock to not
-    # need a key. If you switch the provider you must set the key yourself.
-    if settings.AI_PROVIDER not in ("mock", "anthropic", "openai"):
-        # Unknown provider — soft warn via error, since unrecognized providers
-        # would also break runtime.
-        errors.append(f"AI_PROVIDER={settings.AI_PROVIDER!r} is not a known value")
+    # AI provider config (v0.6). mock needs nothing. For any real provider we
+    # require its config to be complete so we fail fast instead of 500-ing on
+    # the first generation. The registry knows what each provider needs.
+    from app.services.ai.registry import normalize_name, KNOWN_PROVIDERS, validate_current_provider
+
+    provider = normalize_name(settings.AI_PROVIDER)
+    if provider not in KNOWN_PROVIDERS:
+        errors.append(
+            f"AI_PROVIDER={settings.AI_PROVIDER!r} is not a known value "
+            f"(expected one of: {', '.join(KNOWN_PROVIDERS)})"
+        )
+    elif provider != "mock":
+        missing = validate_current_provider()
+        if missing:
+            errors.append(
+                f"AI_PROVIDER={provider!r} is missing required config: "
+                f"{', '.join(missing)}. Set them in .env."
+            )
 
     if errors:
         raise RuntimeError(

@@ -313,6 +313,54 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+# ------------------ AI Prompt templates (v0.6) ------------------
+
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+    __table_args__ = (UniqueConstraint("key", "version", name="uq_prompt_key_version"),)
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(64), index=True, nullable=False)        # e.g. "generate_outline"
+    name = Column(String(128))
+    version = Column(Integer, default=1, nullable=False)
+    system_prompt = Column(Text)
+    user_prompt_template = Column(Text)
+    output_schema = Column(JSON, default=dict)                   # field shape hint
+    is_active = Column(Boolean, default=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ------------------ AI generation run log (v0.6) ------------------
+
+class AIGenerationRun(Base):
+    """One row per AI provider call. NEVER stores prompts in clear or any
+    API key — only sha256 hashes of request/response and usage metadata.
+
+    project_id / task_id / episode_id are PLAIN INTEGER (not FKs), like
+    audit_logs: this telemetry must outlive the rows it references."""
+    __tablename__ = "ai_generation_runs"
+
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, index=True, nullable=True)
+    task_id = Column(Integer, index=True, nullable=True)
+    episode_id = Column(Integer, index=True, nullable=True)
+    provider = Column(String(32), nullable=False)
+    model = Column(String(128))
+    prompt_template_key = Column(String(64), index=True)
+    prompt_template_version = Column(Integer)
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    latency_ms = Column(Integer, default=0)
+    status = Column(String(32), index=True, nullable=False)     # completed / failed
+    error_message = Column(Text)
+    request_hash = Column(String(64))
+    response_hash = Column(String(64))
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 # ------------------ Notifications ------------------
 
 class Notification(Base):

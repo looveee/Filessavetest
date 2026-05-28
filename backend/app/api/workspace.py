@@ -1,11 +1,12 @@
 """'My Workspace' aggregated endpoint."""
+from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from app.database import get_db
 from app.models import (
     User, Project, GenerationTask, TaskStatus, TaskType,
-    PublishSchedule, PublishStatus, Asset,
+    PublishSchedule, PublishStatus, Asset, AIGenerationRun,
 )
 from app.deps import get_current_user
 
@@ -42,6 +43,24 @@ def my_workspace(db: Session = Depends(get_db), user: User = Depends(get_current
         PublishSchedule.project_id.in_(allowed_pids),
         PublishSchedule.status == PublishStatus.pending,
     ).order_by(PublishSchedule.scheduled_at).limit(50).all()
+
+    # 5. AI usage today (calls + tokens) for projects I can see, aggregated
+    #    from ai_generation_runs.
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    ai_today_q = db.query(
+        func.count(AIGenerationRun.id),
+        func.coalesce(func.sum(AIGenerationRun.input_tokens), 0),
+        func.coalesce(func.sum(AIGenerationRun.output_tokens), 0),
+    ).filter(AIGenerationRun.created_at >= day_start)
+    if not user.is_admin:
+        if allowed_pids:
+            ai_today_q = ai_today_q.filter(or_(
+                AIGenerationRun.project_id.in_(allowed_pids),
+                AIGenerationRun.created_by == user.id,
+            ))
+        else:
+            ai_today_q = ai_today_q.filter(AIGenerationRun.created_by == user.id)
+    ai_calls_today, ai_in_tokens_today, ai_out_tokens_today = ai_today_q.one()
 
     def _proj_name(pid):
         p = next((x for x in my_projects if x.id == pid), None)
@@ -87,5 +106,7 @@ def my_workspace(db: Session = Depends(get_db), user: User = Depends(get_current
             "tasks_pending": len(tasks_for_me),
             "review_pending": len(review_tasks),
             "publish_pending": len(pending_publish),
+            "ai_calls_today": int(ai_calls_today or 0),
+            "ai_tokens_today": int((ai_in_tokens_today or 0) + (ai_out_tokens_today or 0)),
         },
     }

@@ -6,7 +6,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "AI ShortVideo Platform"
-    APP_VERSION: str = "0.5.0"
+    APP_VERSION: str = "0.6.0"
     DEBUG: bool = True
     API_PREFIX: str = "/api"
 
@@ -31,10 +31,26 @@ class Settings(BaseSettings):
     # Dev: true (convenient). Prod: false (forces auth-checked download).
     SERVE_STORAGE_DIRECT: bool = True
 
-    # AI provider switch (mock | openai | anthropic | custom)
+    # ---- AI provider (v0.6) ----
+    # mock | claude | openai | openai_compatible
     AI_PROVIDER: str = "mock"
+    # Generic knobs — used as fallback for whichever provider is active.
+    AI_MODEL: str = ""
+    AI_BASE_URL: str = ""
     AI_API_KEY: str = ""
-    AI_API_BASE: str = ""
+    AI_TIMEOUT_SECONDS: int = 60
+    AI_MAX_RETRIES: int = 2
+    AI_TEMPERATURE: float = 0.7
+    AI_MAX_OUTPUT_TOKENS: int = 4096
+
+    # Provider-specific overrides. When set, they win over the generic AI_* knobs.
+    CLAUDE_MODEL: str = ""
+    CLAUDE_API_KEY: str = ""
+    OPENAI_MODEL: str = ""
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = ""
+    LOCAL_LLM_BASE_URL: str = "http://host.docker.internal:11434/v1"
+    LOCAL_LLM_MODEL: str = ""
 
     # CORS
     CORS_ORIGINS: str = "*"

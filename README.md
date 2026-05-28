@@ -1,8 +1,24 @@
 # AI 短视频半自动生产平台 / AI Short-Video Pipeline
 
-> **当前版本: v0.5.0**
+> **当前版本: v0.6.0**
 >
-> 多用户 / 私有项目流 / 多人协作 / 显式权限矩阵 RBAC / AI 生成 / 人工在环审核 / 审计日志 / 多账号排期发布 / Redis 限流 / 生产启动安全校验 / **Alembic 数据库迁移**。
+> 多用户 / 私有项目流 / 多人协作 / 显式权限矩阵 RBAC / **可配置可替换 AI Provider** / 人工在环审核 / 审计日志 / 多账号排期发布 / Redis 限流 / 生产启动安全校验 / Alembic 数据库迁移。
+
+## v0.6 关键改动 — AI Provider 接入
+
+v0.5 之前 AI 是一个返回占位文本的 Mock。v0.6 把它升级成**可配置、可替换、可观测**的 Provider 架构,文本链路全部走真实结构化 JSON。
+
+- **四种 Provider**:`mock`(本地确定性,无需网络/Key)、`claude`(Anthropic Messages API)、`openai`(OpenAI Chat Completions)、`openai_compatible`(Ollama / vLLM / LM Studio 等本地兼容服务)。通过 `AI_PROVIDER` 切换。
+- **结构化输出**:`generate_outline` / `split_episodes` / `generate_script` / `generate_storyboard` / `generate_title_tags` / `review_content` / `rewrite_script` / `enhance_hook` / `enhance_conflict` / `enhance_cliffhanger` 全部返回经 Pydantic 校验的 JSON;parse 失败自动 repair 一次,仍失败则任务标记 `failed`。
+- **Prompt 模板表** `prompt_templates`(Alembic 0002 创建并 seed 10 个默认模板):admin 可查看 / 编辑 / 克隆新版本;每次调用记录 `template key + version`。
+- **AI 调用日志表** `ai_generation_runs`:每次调用一行(成功或失败),记录 provider / model / token / latency / 模板版本 / `request_hash` / `response_hash`。**永不记录 API Key,永不落库 prompt 明文**。
+- **新 API**:`GET /api/ai/providers`、`POST /api/ai/test`(admin)、`GET /api/ai/runs`、`GET/PUT /api/prompts`、`POST /api/prompts/{id}/clone`(均 admin)。
+- **前端**:新增 Settings(provider 状态 / 健康 / 测试 prompt)、Prompt Templates(列表 / 查看 / 编辑 / 克隆)页;项目详情任务卡展示 AI run 摘要;Dashboard 展示今日 AI 调用量。
+- **生产校验**:`DEBUG=false` 且 `AI_PROVIDER!=mock` 时,启动会硬校验该 provider 所需配置是否齐全,缺失即拒绝启动。
+
+> v0.6 只做文本链路。**不含**视频生成 / ComfyUI / 自动发布 / WebSocket(`video_generation` 仍是 mock 占位)。
+
+详见 **第十七节 · AI Provider**。
 
 ## v0.5 关键改动 — Alembic 接管 schema
 
@@ -27,7 +43,8 @@ v0.4.x 一直用 `Base.metadata.create_all()` + 手写 `ALTER TABLE IF NOT EXIST
 |---|---|
 | 前端 | Next.js 14 (App Router) + TypeScript + Tailwind |
 | 后端 | FastAPI + SQLAlchemy 2.0 + Pydantic v2 |
-| 数据库 | PostgreSQL 15 + **Alembic 1.13** |
+| 数据库 | PostgreSQL 15 + Alembic 1.13 |
+| AI | **可插拔 Provider**:mock / Claude / OpenAI / OpenAI 兼容(httpx) |
 | 队列 | Redis 7 + Celery 5 |
 | 限流 | Redis sliding-window counter |
 | 反向代理 | Nginx |
@@ -351,11 +368,19 @@ account.create / account.use
 - GET / POST `/api/schedules`,PATCH `/api/schedules/{id}/status`
 
 ### Workspace / Audit / System
-- GET `/api/workspace`
+- GET `/api/workspace` — 含 `summary.ai_calls_today` / `ai_tokens_today`
 - GET `/api/audit-logs` — 行级隔离
 - GET `/api/system/health` — 公开,只 `{ok, version, app_name}`
-- GET `/api/system/health-full` — admin only
+- GET `/api/system/health-full` — admin only,含 `ai` provider 状态(无密钥)
 - GET `/api/system/permission-matrix` — admin only
+
+### AI / Prompts (v0.6)
+- GET `/api/ai/providers` — 任意已登录用户;当前 provider/model + 各 provider 是否已配置(**不含密钥**)
+- POST `/api/ai/test` — admin;freeform prompt → `{provider, model, latency_ms, tokens, ok, sample_output}`
+- GET `/api/ai/runs?project_id=&task_id=&status=` — 行级隔离(admin 全部 / owner+member 看自己项目 / 自己触发的)
+- GET `/api/prompts`、GET `/api/prompts/{id}` — admin
+- PUT `/api/prompts/{id}` — admin,编辑(`name / system_prompt / user_prompt_template / output_schema / is_active`)
+- POST `/api/prompts/{id}/clone` — admin,克隆为同 key 的新 version(默认未激活)
 
 ---
 
@@ -363,6 +388,8 @@ account.create / account.use
 
 15 张表(由 `0001_initial_schema.py` 创建):
 `users, projects, project_members, source_texts, episodes, scripts, storyboards, generation_tasks, task_assignments, assets, accounts, publish_schedules, performance_metrics, audit_logs, notifications`
+
+v0.6 新增 2 张表(`0002_ai_provider.py`):`prompt_templates`(并 seed 10 个默认模板)、`ai_generation_runs`。后者的 `project_id / task_id / episode_id` 与 `audit_logs` 一样是**纯 INTEGER 非外键**,使遥测能在被引用行删除后存活。
 
 4 个 PG 枚举: `taskstatus / tasktype / projectrole / publishstatus`。
 
@@ -382,9 +409,13 @@ docker-compose exec -T db psql -U postgres shortvideo < backup_2026-01-15.sql
 # 静态契约 (无依赖) — 最常跑的一组
 DATABASE_URL='postgresql+psycopg2://x:x@nowhere/x' SECRET_KEY=test \
   pytest backend/tests/test_permission_matrix.py backend/tests/test_alembic_state.py -v
-# 19 passed (16 perm + 3 alembic-state),1 skipped (live alembic)
+# 16 perm + 4 alembic-state(1 skipped: live alembic)
 
-# 集成测试 (需 db + redis)
+# AI provider 纯逻辑 (无依赖):mock 结构化输出 / JSON repair / repair 失败
+DATABASE_URL='postgresql+psycopg2://x:x@nowhere/x' SECRET_KEY=test \
+  pytest backend/tests/test_ai_provider.py -v   # DB/API 用例自动 skip
+
+# 集成测试 (需 db + redis) — 含 ai_generation_runs / prompt RBAC / ai/test admin 门禁
 docker-compose up -d db redis
 DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/shortvideo \
 REDIS_URL=redis://localhost:6379/15 \
@@ -427,6 +458,86 @@ A: 不会。`alembic upgrade head` 在 head 已是最新时是 noop。但**多�
 
 **Q: pytest 跑 `test_alembic_upgrade_head_live` 怎么启用?**
 A: 设环境变量 `ALEMBIC_LIVE_TEST_DB_URL=postgresql://...` 指向一个**空的扔库**。我们故意没在默认 fixture 里启用,因为大多数开发机不想为静态测试启动 PG 实例。
+
+---
+
+## 十七、AI Provider(v0.6)
+
+### 1. 切换 Provider
+
+通过 `.env` 的 `AI_PROVIDER` 切换,改完重启 backend + worker:
+
+```bash
+AI_PROVIDER=mock              # 默认:本地确定性内容,无需网络/Key
+AI_PROVIDER=claude            # Anthropic Messages API
+AI_PROVIDER=openai            # OpenAI Chat Completions
+AI_PROVIDER=openai_compatible # 本地 Ollama / vLLM / LM Studio
+```
+
+通用旋钮(作为各 provider 的 fallback):`AI_MODEL / AI_BASE_URL / AI_API_KEY / AI_TIMEOUT_SECONDS / AI_MAX_RETRIES / AI_TEMPERATURE / AI_MAX_OUTPUT_TOKENS`。
+
+### 2. mock 模式
+
+无需任何配置。所有 smoke / 集成测试默认在 mock 下跑;输出基于输入哈希确定性生成,且严格符合各操作的 Pydantic schema。
+
+### 3. Claude 模式
+
+```bash
+AI_PROVIDER=claude
+CLAUDE_API_KEY=sk-ant-...
+CLAUDE_MODEL=claude-sonnet-4-6        # 或其它可用模型
+# 可选 AI_BASE_URL 走自建网关,默认 https://api.anthropic.com
+```
+
+### 4. OpenAI 模式
+
+```bash
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+# 可选 OPENAI_BASE_URL,默认 https://api.openai.com/v1
+```
+
+### 5. Ollama / vLLM 本地模式
+
+```bash
+AI_PROVIDER=openai_compatible
+LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1   # Ollama 默认
+LOCAL_LLM_MODEL=qwen2.5:7b
+# Ollama 通常不需要 Key;vLLM 可能要任意非空 token,填到 OPENAI_API_KEY
+```
+
+> 在 Docker 里连宿主机的本地模型,用 `host.docker.internal`(Linux 需在 compose 给容器加 `extra_hosts: ["host.docker.internal:host-gateway"]`,或直接填宿主机 IP)。
+
+### 6. API Key 安全
+
+- Key 只存在于 backend 环境变量,**永不下发前端**。
+- `GET /api/ai/providers` 只返回 `configured: true/false` 和缺失字段**名**,绝不返回 Key 值。
+- `ai_generation_runs` 不存 Key、不存 prompt 明文,只存 `request_hash` / `response_hash`(sha256)。
+- `DEBUG=false` 且 `AI_PROVIDER!=mock` 时,启动会校验该 provider 必填项是否齐全,缺失即拒绝启动。
+
+### 7. Prompt 模板管理
+
+- 10 个默认模板由迁移 0002 seed;代码默认值在 `backend/app/services/ai/default_prompts.py`(DB 无对应行时回退到这里)。
+- 运行时按 key 取**最高版本的 active 行**;改了模板,下一次 AI 调用立即生效。
+- admin 在前端 `Prompts` 页或 `PUT /api/prompts/{id}` 编辑;`POST /api/prompts/{id}/clone` 克隆出新版本(默认未激活,验证后再勾选 active)。
+
+### 8. AI 调用日志
+
+- 每次调用(成功或失败)写一行 `ai_generation_runs`:provider / model / token / latency / 模板 key+version / 状态 / 错误。
+- 前端项目详情「任务」页每个任务卡展示对应 run 摘要;Dashboard 顶部展示今日 AI 调用量。
+- `GET /api/ai/runs` 行级隔离;admin 看全部。
+
+### 9. 常见错误
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| `missing required config: CLAUDE_API_KEY ...` 启动失败 | 选了非 mock provider 但没配齐 Key/Model;补 `.env` 后重启 |
+| 任务 `failed`,error 含 `schema validation failed` | 模型没按 JSON schema 输出;已自动 repair 一次仍失败 → 检查/调整该操作的 prompt 模板 |
+| 任务 `failed`,error 含 `json parse failed after repair` | 模型返回的根本不是 JSON;同上,强化模板里的"只输出 JSON"约束 |
+| `provider error: ... timeout` | 上游超时;调大 `AI_TIMEOUT_SECONDS` 或 `AI_MAX_RETRIES` |
+| `provider error: ... 404 ... model` | `*_MODEL` 名称错误或该账号无权访问 |
+| 本地模型连不上(`Connection refused`) | `LOCAL_LLM_BASE_URL` 不可达;确认本地服务在跑、Docker 网络能到宿主机 |
 
 ---
 

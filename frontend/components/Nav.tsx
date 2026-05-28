@@ -14,6 +14,8 @@ const NAV = [
   { href: '/schedule',   label: 'Schedule' },
   { href: '/users',      label: 'Users' },
   { href: '/audit',      label: 'Audit' },
+  { href: '/prompts',    label: 'Prompts' },
+  { href: '/settings',   label: 'Settings' },
 ];
 
 export default function Nav() {

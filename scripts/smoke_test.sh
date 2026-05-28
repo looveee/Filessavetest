@@ -559,6 +559,89 @@ done
   || fail "rate limit never tripped after 25 failed logins" ""
 echo
 
+# ----------------------------------------------------------------------
+echo "[17] v0.6 AI provider: providers / test / runs / structured output / prompts"
+
+# /api/ai/providers is readable by any authed user and reports the provider.
+R=$(call GET /api/ai/providers VIEWER_TOKEN)
+S=$(split_status "$R"); B=$(split_body "$R")
+if [ "$S" = "200" ] && [ -n "$(echo "$B" | jq -r '.current_provider // empty')" ]; then
+  ok "GET /api/ai/providers -> $(echo "$B" | jq -r '.current_provider')"
+else
+  fail "ai/providers" "$S $B"
+fi
+
+# /api/ai/test is admin-only.
+R=$(call POST /api/ai/test VIEWER_TOKEN '{"prompt":"hi"}')
+[ "$(split_status "$R")" = "403" ] && ok "non-admin /api/ai/test -> 403" || fail "ai/test should 403 for non-admin" "$R"
+
+R=$(call POST /api/ai/test ADMIN_TOKEN '{"prompt":"用一句话自我介绍"}')
+S=$(split_status "$R"); B=$(split_body "$R")
+if [ "$S" = "200" ] && [ "$(echo "$B" | jq -r '.ok')" = "true" ]; then
+  ok "admin /api/ai/test ok provider=$(echo "$B" | jq -r '.provider') latency=$(echo "$B" | jq -r '.latency_ms')ms"
+else
+  fail "admin ai/test" "$S $B"
+fi
+
+# Create an outline task and confirm STRUCTURED JSON output + an AI run row.
+R=$(call POST /api/tasks ADMIN_TOKEN \
+  "{\"project_id\":$PID,\"task_type\":\"outline_generation\",\"input_data\":{\"theme\":\"v0.6 smoke\"}}")
+OUTLINE_TASK=$(echo "$(split_body "$R")" | jq -r '.id')
+note "outline task=$OUTLINE_TASK"
+OL_STATUS=""
+for i in $(seq 1 8); do
+  R=$(call GET /api/tasks/$OUTLINE_TASK ADMIN_TOKEN)
+  OL_STATUS=$(echo "$(split_body "$R")" | jq -r '.status')
+  [ "$OL_STATUS" = "completed" ] && break
+  [ "$OL_STATUS" = "failed" ] && break
+  sleep 1
+done
+R=$(call GET /api/tasks/$OUTLINE_TASK ADMIN_TOKEN)
+B=$(split_body "$R")
+HAS_LOGLINE=$(echo "$B" | jq -r '.output_data | has("logline")')
+if [ "$OL_STATUS" = "completed" ] && [ "$HAS_LOGLINE" = "true" ]; then
+  ok "outline task output_data is structured JSON (has logline)"
+else
+  fail "outline structured output" "status=$OL_STATUS body=$B"
+fi
+
+# ai_generation_runs has a record for this task.
+R=$(call GET "/api/ai/runs?task_id=$OUTLINE_TASK" ADMIN_TOKEN)
+S=$(split_status "$R"); B=$(split_body "$R")
+RUN_N=$(echo "$B" | jq 'length')
+if [ "$S" = "200" ] && [ "$RUN_N" -ge 1 ]; then
+  # And the run must never carry an api_key field.
+  HAS_KEY=$(echo "$B" | jq -r 'any(.[]; has("api_key") or has("apiKey"))')
+  if [ "$HAS_KEY" = "false" ]; then
+    ok "ai/runs recorded the call ($RUN_N) and exposes no api_key"
+  else
+    fail "ai/runs leaked api_key" "$B"
+  fi
+else
+  fail "ai/runs should have a record" "$S $B"
+fi
+
+# Prompt templates: admin can list, non-admin cannot; non-admin cannot edit.
+R=$(call GET /api/prompts ADMIN_TOKEN)
+S=$(split_status "$R"); B=$(split_body "$R")
+P_N=$(echo "$B" | jq 'length')
+if [ "$S" = "200" ] && [ "$P_N" -ge 1 ]; then
+  ok "admin GET /api/prompts -> $P_N templates"
+  PROMPT_ID=$(echo "$B" | jq -r '.[0].id')
+else
+  fail "admin prompts list" "$S $B"
+  PROMPT_ID=""
+fi
+
+R=$(call GET /api/prompts VIEWER_TOKEN)
+[ "$(split_status "$R")" = "403" ] && ok "non-admin GET /api/prompts -> 403" || fail "prompts should 403 for non-admin" "$R"
+
+if [ -n "$PROMPT_ID" ]; then
+  R=$(call PUT /api/prompts/$PROMPT_ID VIEWER_TOKEN '{"name":"hacked"}')
+  [ "$(split_status "$R")" = "403" ] && ok "non-admin PUT /api/prompts/{id} -> 403" || fail "prompt edit should 403" "$R"
+fi
+echo
+
 
 echo "PASS=$PASS  FAIL=$FAIL"
 echo "===================================================="

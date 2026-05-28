@@ -30,6 +30,8 @@ from app.api import (
     assets_accounts,
     system as system_api,
     audit_logs as audit_logs_api,
+    ai as ai_api,
+    prompts as prompts_api,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -106,3 +108,5 @@ app.include_router(assets_accounts.accounts_router,  prefix=PREFIX)
 app.include_router(assets_accounts.schedules_router, prefix=PREFIX)
 app.include_router(system_api.router,       prefix=PREFIX)
 app.include_router(audit_logs_api.router,   prefix=PREFIX)
+app.include_router(ai_api.router,           prefix=PREFIX)
+app.include_router(prompts_api.router,      prefix=PREFIX)

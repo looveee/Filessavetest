@@ -137,6 +137,7 @@ def health_full(db: Session = Depends(get_db),
             "storage": storage_with_paths,
         },
         "ai_provider": settings.AI_PROVIDER,
+        "ai": _ai_status(),
         "app_version": settings.APP_VERSION,
         "app_name": settings.APP_NAME,
         "rate_limit_enabled": settings.RATE_LIMIT_ENABLED,
@@ -149,6 +150,15 @@ def health_full(db: Session = Depends(get_db),
 @router.get("/permission-matrix")
 def permission_matrix(_admin = Depends(require_admin)):
     return {"roles": role_permission_matrix()}
+
+
+def _ai_status() -> dict:
+    """Provider config summary — no secrets, safe for admin health view."""
+    try:
+        from app.services.ai import provider_status
+        return provider_status()
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:200]}
 
 
 def _safe_url(u: str) -> str:

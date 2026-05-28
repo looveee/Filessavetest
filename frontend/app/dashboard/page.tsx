@@ -21,11 +21,12 @@ export default function DashboardPage() {
     <>
       <PageHeader title="Dashboard" subtitle="生产线全景 · 一眼看清所有进度" />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
         <Stat label="我的项目" value={s.owned_projects} accent />
         <Stat label="待我处理任务" value={s.tasks_pending} />
         <Stat label="待我审核" value={s.review_pending} />
         <Stat label="待我发布" value={s.publish_pending} />
+        <Stat label="今日 AI 调用" value={s.ai_calls_today} />
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">

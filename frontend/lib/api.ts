@@ -191,4 +191,25 @@ export const api = {
   // system
   systemHealth: () => request('/system/health-full'),
   permissionMatrix: () => request('/system/permission-matrix'),
+
+  // ai (v0.6)
+  aiProviders: () => request('/ai/providers'),
+  aiTest: (prompt: string, system?: string) =>
+    request('/ai/test', { method: 'POST', body: JSON.stringify({ prompt, system }) }),
+  listAiRuns: (q: { project_id?: number; task_id?: number; status?: string; limit?: number } = {}) => {
+    const sp = new URLSearchParams();
+    Object.entries(q).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') sp.append(k, String(v));
+    });
+    const qs = sp.toString();
+    return request(`/ai/runs${qs ? '?' + qs : ''}`);
+  },
+
+  // prompt templates (admin)
+  listPrompts: () => request('/prompts'),
+  getPrompt: (id: number) => request(`/prompts/${id}`),
+  updatePrompt: (id: number, body: any) =>
+    request(`/prompts/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  clonePrompt: (id: number) =>
+    request(`/prompts/${id}/clone`, { method: 'POST' }),
 };

@@ -68,7 +68,20 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
       AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
       # CORS must be explicit in production. The application's startup
       # safety validator will refuse to boot if this is "*" or empty.
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be set explicitly in production (no wildcards)}
@@ -111,7 +124,20 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
       AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
       UPLOAD_DIR: /app/storage/uploads
       ASSETS_DIR: /app/storage/assets
     volumes:

@@ -273,6 +273,59 @@ class AIGenerateRequest(BaseModel):
     extra: Dict[str, Any] = {}
 
 
+# ============ AI provider (v0.6) ============
+
+class AITestRequest(BaseModel):
+    prompt: str
+    system: Optional[str] = None
+
+
+class AIRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    project_id: Optional[int] = None
+    task_id: Optional[int] = None
+    episode_id: Optional[int] = None
+    provider: str
+    model: Optional[str] = None
+    prompt_template_key: Optional[str] = None
+    prompt_template_version: Optional[int] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: int = 0
+    status: str
+    error_message: Optional[str] = None
+    request_hash: Optional[str] = None
+    response_hash: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+
+
+# ============ Prompt templates (v0.6) ============
+
+class PromptTemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    key: str
+    name: Optional[str] = None
+    version: int
+    system_prompt: Optional[str] = None
+    user_prompt_template: Optional[str] = None
+    output_schema: Optional[Any] = None
+    is_active: bool
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PromptTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    user_prompt_template: Optional[str] = None
+    output_schema: Optional[Any] = None
+    is_active: Optional[bool] = None
+
+
 # ============ Audit log ============
 
 class AuditLogOut(BaseModel):

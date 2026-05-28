@@ -1,1 +1,1 @@
-from app.services.ai_service import ai_service  # noqa: F401
+from app.services.ai import ai_service  # noqa: F401

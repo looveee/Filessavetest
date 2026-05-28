@@ -10,7 +10,7 @@ from app.deps import get_current_user
 from app.permissions import Permission, require_permission
 from app.services.audit import log_audit, snapshot
 from app.tasks.ai_tasks import run_generation_task
-from app.services.ai_service import ai_service
+from app.services.ai import ai_service
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -83,14 +83,25 @@ def review_task(task_id: int, payload: ReviewAction, request: Request,
         ).first()
         if not cur:
             raise HTTPException(400, "no current script to modify")
+        run_ctx = {
+            "project_id": t.project_id, "task_id": t.id,
+            "episode_id": t.episode_id, "created_by": user.id,
+        }
         if action == "rewrite":
-            new_content = ai_service.rewrite_script(cur.content, payload.note or "整体重写")
+            resp = ai_service.rewrite_script(
+                db, run_ctx=run_ctx,
+                original_script=cur.content or "",
+                instruction=payload.note or "整体重写",
+            )
         elif action == "enhance_conflict":
-            new_content = ai_service.enhance_conflict(cur.content)
+            resp = ai_service.enhance_conflict(db, run_ctx=run_ctx, original_script=cur.content or "")
         elif action == "enhance_cliffhanger":
-            new_content = ai_service.enhance_cliffhanger(cur.content)
+            resp = ai_service.enhance_cliffhanger(db, run_ctx=run_ctx, original_script=cur.content or "")
         else:
-            new_content = ai_service.enhance_hook(cur.content)
+            resp = ai_service.enhance_hook(db, run_ctx=run_ctx, original_script=cur.content or "")
+        if not resp.ok:
+            raise HTTPException(502, f"AI {action} failed: {resp.error}")
+        new_content = resp.parsed_json["script"]
         db.query(Script).filter(Script.episode_id == t.episode_id).update({"is_current": False})
         next_v = cur.version + 1
         new_s = Script(
