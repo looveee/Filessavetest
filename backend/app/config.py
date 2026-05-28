@@ -6,7 +6,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "AI ShortVideo Platform"
-    APP_VERSION: str = "0.6.0"
+    APP_VERSION: str = "0.6.1"
     DEBUG: bool = True
     API_PREFIX: str = "/api"
 
@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     AI_MAX_RETRIES: int = 2
     AI_TEMPERATURE: float = 0.7
     AI_MAX_OUTPUT_TOKENS: int = 4096
+    # Soft per-user daily cap on AI generation calls. <= 0 disables the cap.
+    AI_DAILY_CALL_LIMIT_PER_USER: int = 200
 
     # Provider-specific overrides. When set, they win over the generic AI_* knobs.
     CLAUDE_MODEL: str = ""

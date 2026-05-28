@@ -17,6 +17,28 @@ class ProviderConfigError(RuntimeError):
     """Raised when a provider is asked to run without required config."""
 
 
+class ProviderClientError(RuntimeError):
+    """Upstream returned 4xx — a client/config problem. NEVER retried."""
+
+
+class ProviderServerError(RuntimeError):
+    """Upstream returned 5xx — transient. Retried up to max_retries."""
+
+
+class ProviderTimeoutError(RuntimeError):
+    """Upstream did not answer within AI_TIMEOUT_SECONDS. Retried, then fails."""
+
+
+# Appended to every real provider's system prompt so the model returns one
+# bare JSON object. The structured prompt templates already say this, but we
+# repeat it at the provider boundary so even ad-hoc calls stay JSON-only.
+JSON_ONLY_NUDGE = (
+    "\n\nYou MUST respond with a single valid JSON object and nothing else. "
+    "Do not wrap it in markdown code fences. Do not add any commentary "
+    "before or after the JSON."
+)
+
+
 class BaseProvider:
     name: str = "base"
 
@@ -99,9 +121,16 @@ class BaseProvider:
         headers: Dict[str, str],
         payload: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], int]:
-        """POST JSON with retry/backoff. Returns (json_body, latency_ms).
+        """POST JSON. Returns (json_body, latency_ms).
 
-        Raises the last exception after exhausting retries.
+        Retry policy (per spec):
+          - 4xx               -> ProviderClientError, NEVER retried (config/auth
+                                 problems don't get better on retry).
+          - 5xx               -> ProviderServerError, retried up to max_retries.
+          - timeout / network -> retried up to max_retries, then raised.
+
+        Error messages carry only status + a truncated response body — never
+        request headers, so the API key is never echoed back.
         """
         import httpx
 
@@ -109,21 +138,39 @@ class BaseProvider:
         last_exc: Optional[Exception] = None
         start = time.time()
         for i in range(attempts):
+            is_last = i >= attempts - 1
             try:
                 with httpx.Client(timeout=self.timeout) as client:
                     r = client.post(url, headers=headers, json=payload)
-                if r.status_code >= 500:
-                    raise RuntimeError(f"upstream {r.status_code}: {r.text[:300]}")
-                if r.status_code >= 400:
-                    # 4xx won't get better on retry — fail fast.
-                    raise RuntimeError(f"request error {r.status_code}: {r.text[:300]}")
-                latency_ms = int((time.time() - start) * 1000)
-                return r.json(), latency_ms
-            except Exception as e:  # noqa: BLE001
-                last_exc = e
-                if i < attempts - 1:
-                    time.sleep(min(2 ** i, 8))
-        raise last_exc if last_exc else RuntimeError("request failed")
+            except httpx.TimeoutException:
+                last_exc = ProviderTimeoutError(
+                    f"upstream timeout after {self.timeout}s"
+                )
+                if is_last:
+                    raise last_exc
+                time.sleep(min(2 ** i, 8))
+                continue
+            except httpx.HTTPError as e:  # connection refused / DNS / etc — transient
+                last_exc = ProviderServerError(f"connection error: {e}")
+                if is_last:
+                    raise last_exc
+                time.sleep(min(2 ** i, 8))
+                continue
+
+            if r.status_code >= 500:
+                last_exc = ProviderServerError(f"upstream {r.status_code}: {r.text[:300]}")
+                if is_last:
+                    raise last_exc
+                time.sleep(min(2 ** i, 8))
+                continue
+            if r.status_code >= 400:
+                # 4xx: bail immediately, no retry.
+                raise ProviderClientError(f"request error {r.status_code}: {r.text[:300]}")
+
+            latency_ms = int((time.time() - start) * 1000)
+            return r.json(), latency_ms
+
+        raise last_exc if last_exc else ProviderServerError("request failed")
 
 
 # model -> (input $/1K, output $/1K). Best-effort, extend as needed.

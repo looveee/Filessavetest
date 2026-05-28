@@ -1,8 +1,19 @@
 # AI 短视频半自动生产平台 / AI Short-Video Pipeline
 
-> **当前版本: v0.6.0**
+> **当前版本: v0.6.1**
 >
 > 多用户 / 私有项目流 / 多人协作 / 显式权限矩阵 RBAC / **可配置可替换 AI Provider** / 人工在环审核 / 审计日志 / 多账号排期发布 / Redis 限流 / 生产启动安全校验 / Alembic 数据库迁移。
+
+## v0.6.1 关键改动 — 真实 Provider 稳定性 & 可复现构建
+
+v0.6.1 不引入新功能(不做视频生成 / TTS / WebSocket / 自动发布),聚焦**接入真实 AI Provider 后的稳定性、构建可复现、成本/超时/JSON 失败控制**:
+
+- **前端构建可复现**:`frontend/package-lock.json` **现已提交**;Dockerfile 改用 `npm ci`(锁定版本精确安装);只有 `*.tsbuildinfo` 仍 gitignore。本地首装 `npm install`,Docker/CI/生产 `npm ci`。
+- **Provider 验收脚本** `scripts/ai_provider_smoke.sh`:source `.env` → `GET /ai/providers` → admin 登录 → `POST /ai/test` → 建项目 → 建 `outline_generation` 任务 → 轮询完成 → 查 `ai_generation_runs` → 校验 provider/model 有记录、output 是 JSON、`error_message` 空、`response_hash` 存在、**不含 API Key**。mock 必通,真实 provider 同样可跑。
+- **JSON 稳定性增强**:provider system prompt 显式要求"只输出 JSON、不要 markdown code fence";`json_repair` 能剥离 ```json``` 围栏、从前后夹杂文字中提取最外层 JSON 对象、容忍尾逗号;不可修复则任务 `failed`(并记 run 错误摘要,不落 prompt/Key)。
+- **成本/超时/重试保护**:`AI_TIMEOUT_SECONDS` / `AI_MAX_OUTPUT_TOKENS` 生效;**5xx / 超时 / 网络错误**按 `AI_MAX_RETRIES` 重试,**4xx 不重试**直接 `failed`;新增**每用户每日软上限** `AI_DAILY_CALL_LIMIT_PER_USER`(默认 200),超限任务不调用 provider、直接 `failed` 并写审计。
+- **Prompt seed 幂等**:`prompt_templates` 有 `(key, version)` 唯一约束;重复 `alembic upgrade head` 不重复插入(seed 按 `(key,version)` 跳过已存在行)。
+- **任务状态 / 审计一致性**:AI 开始 `running` + `task.ai_started`;成功需人工审核 `waiting_human`、否则 `completed` + `task.ai_completed`;失败(含 repair 失败 / 超限)`failed` + `task.ai_failed`;`output_data` 始终是结构化 JSON。
 
 ## v0.6 关键改动 — AI Provider 接入
 
@@ -114,6 +125,19 @@ bash scripts/smoke_test.sh
 | API 文档 | http://localhost/docs |
 | 直连后端 | http://localhost:8000/docs |
 | 直连前端 | http://localhost:3000 |
+
+### 前端依赖与可复现构建(v0.6.1)
+
+`frontend/package-lock.json` **是受版本管理的文件,必须提交**。它锁定整棵依赖树,保证 Docker/CI/生产构建出的产物与本地一致。
+
+| 场景 | 命令 | 说明 |
+|---|---|---|
+| 本地首次安装 / 增删依赖 | `npm install` | 会按 `package.json` 解析并**更新 `package-lock.json`**,记得把变更一起提交 |
+| Docker / CI / 生产构建 | `npm ci` | 严格依据 `package-lock.json` 精确安装;锁文件与 `package.json` 不一致会**直接报错**(这正是我们想要的) |
+
+`frontend/Dockerfile` 的 deps 阶段已改为 `COPY package.json package-lock.json ./ && npm ci`。唯一仍被 gitignore 的前端产物是 TypeScript 增量缓存 `*.tsbuildinfo`。
+
+> 改完依赖后若忘记提交新的 `package-lock.json`,`npm ci` 会在 CI 阶段失败并提示 lock 与 manifest 不一致——按提示本地 `npm install` 再提交锁文件即可。
 
 ---
 
@@ -411,11 +435,14 @@ DATABASE_URL='postgresql+psycopg2://x:x@nowhere/x' SECRET_KEY=test \
   pytest backend/tests/test_permission_matrix.py backend/tests/test_alembic_state.py -v
 # 16 perm + 4 alembic-state(1 skipped: live alembic)
 
-# AI provider 纯逻辑 (无依赖):mock 结构化输出 / JSON repair / repair 失败
+# AI provider 纯逻辑 (无依赖):mock 结构化输出 / JSON repair(code fence /
+# 夹杂文字 / 尾逗号 / 失败)/ HTTP 重试策略(5xx 重试、4xx 不重试、超时)/
+# 每日调用上限
 DATABASE_URL='postgresql+psycopg2://x:x@nowhere/x' SECRET_KEY=test \
   pytest backend/tests/test_ai_provider.py -v   # DB/API 用例自动 skip
 
-# 集成测试 (需 db + redis) — 含 ai_generation_runs / prompt RBAC / ai/test admin 门禁
+# 集成测试 (需 db + redis) — 含 ai_generation_runs / prompt RBAC / ai/test admin
+# 门禁 / ai/runs 行级隔离(test_ai_runs_security.py)
 docker-compose up -d db redis
 DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/shortvideo \
 REDIS_URL=redis://localhost:6379/15 \
@@ -427,10 +454,14 @@ createdb shortvideo_alembic_test
 ALEMBIC_LIVE_TEST_DB_URL=postgresql+psycopg2://localhost/shortvideo_alembic_test \
   pytest backend/tests/test_alembic_state.py::test_alembic_upgrade_head_live -v
 
-# 端到端 smoke
+# 端到端 smoke(RBAC / 审计 / 上传安全等)
 docker-compose up -d --build
 sleep 15
 bash scripts/smoke_test.sh
+
+# AI Provider 验收 smoke(v0.6.1):整条文本链路 + run 落库安全校验
+#   source .env 决定用哪个 provider(mock 必通,真实 provider 同样可跑)
+API_BASE=http://localhost:8000 bash scripts/ai_provider_smoke.sh
 ```
 
 ---
@@ -480,7 +511,11 @@ AI_PROVIDER=openai_compatible # 本地 Ollama / vLLM / LM Studio
 
 无需任何配置。所有 smoke / 集成测试默认在 mock 下跑;输出基于输入哈希确定性生成,且严格符合各操作的 Pydantic schema。
 
-### 3. Claude 模式
+> 通用旋钮里 `AI_TIMEOUT_SECONDS` / `AI_MAX_OUTPUT_TOKENS` 对所有真实 provider 生效;`AI_MAX_RETRIES` 只对 **5xx / 超时 / 网络错误**生效,**4xx(401/403/404/400 等)永不重试**,直接判失败。
+
+### 3. 真实 Provider 配置样例
+
+**Claude(Anthropic Messages API)**
 
 ```bash
 AI_PROVIDER=claude
@@ -489,55 +524,111 @@ CLAUDE_MODEL=claude-sonnet-4-6        # 或其它可用模型
 # 可选 AI_BASE_URL 走自建网关,默认 https://api.anthropic.com
 ```
 
-### 4. OpenAI 模式
+**OpenAI(Chat Completions)**
 
 ```bash
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=gpt-4o                    # 或 gpt-4o-mini 等
 # 可选 OPENAI_BASE_URL,默认 https://api.openai.com/v1
+# OpenAI 走 response_format=json_object,系统提示也再次要求只输出 JSON
 ```
 
-### 5. Ollama / vLLM 本地模式
+**Ollama(本地)**
 
 ```bash
 AI_PROVIDER=openai_compatible
-LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1   # Ollama 默认
-LOCAL_LLM_MODEL=qwen2.5:7b
-# Ollama 通常不需要 Key;vLLM 可能要任意非空 token,填到 OPENAI_API_KEY
+LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1
+LOCAL_LLM_MODEL=qwen2.5:7b            # 需先 `ollama pull qwen2.5:7b`
+# Ollama 不需要 Key;留空即可
+```
+
+**vLLM(本地 / 自托管,OpenAI 兼容)**
+
+```bash
+AI_PROVIDER=openai_compatible
+LOCAL_LLM_BASE_URL=http://host.docker.internal:8000/v1
+LOCAL_LLM_MODEL=Qwen/Qwen2.5-7B-Instruct   # 与 vllm serve 的 --served-model-name 一致
+OPENAI_API_KEY=any-nonempty-token          # vLLM 若启用 --api-key 则必须非空
+```
+
+**LM Studio(本地,OpenAI 兼容)**
+
+```bash
+AI_PROVIDER=openai_compatible
+LOCAL_LLM_BASE_URL=http://host.docker.internal:1234/v1   # LM Studio 默认端口
+LOCAL_LLM_MODEL=lmstudio-community/qwen2.5-7b-instruct    # 用 LM Studio 里显示的 model id
+# LM Studio 通常不校验 Key;留空即可
 ```
 
 > 在 Docker 里连宿主机的本地模型,用 `host.docker.internal`(Linux 需在 compose 给容器加 `extra_hosts: ["host.docker.internal:host-gateway"]`,或直接填宿主机 IP)。
 
-### 6. API Key 安全
+### 4. 验收脚本:分别测 mock / Claude / OpenAI / 本地模型
+
+`scripts/ai_provider_smoke.sh` 跑通整条文本链路并校验 run 落库安全。它会 `source .env`,所以**用哪个 provider 取决于 `.env` 里的 `AI_PROVIDER`**:
+
+```bash
+# mock(无需任何配置,CI 必跑)
+echo "AI_PROVIDER=mock" > .env
+API_BASE=http://localhost:8000 bash scripts/ai_provider_smoke.sh
+
+# Claude:把 .env 配成上面的 Claude 样例,然后
+API_BASE=http://localhost:8000 bash scripts/ai_provider_smoke.sh
+
+# OpenAI / Ollama / vLLM / LM Studio:同理,改 .env 后重跑
+# (改 .env 后记得重启 backend + worker,让新配置生效)
+
+# DB 非空时第一个注册用户不是 admin,传一个已有 admin token:
+ADMIN_TOKEN=<token> API_BASE=http://localhost:8000 bash scripts/ai_provider_smoke.sh
+```
+
+脚本断言:provider/model 有记录、`output_data` 是 JSON 对象、run `error_message` 为空、`response_hash`/`request_hash` 存在、`/ai/providers`+`/ai/test`+`/ai/runs` 响应里**都不含 API Key**、run 不含 prompt/raw_response。
+
+### 5. API Key 安全
 
 - Key 只存在于 backend 环境变量,**永不下发前端**。
 - `GET /api/ai/providers` 只返回 `configured: true/false` 和缺失字段**名**,绝不返回 Key 值。
-- `ai_generation_runs` 不存 Key、不存 prompt 明文,只存 `request_hash` / `response_hash`(sha256)。
+- `ai_generation_runs` 不存 Key、不存 prompt 明文,只存 `request_hash` / `response_hash`(sha256);`GET /api/ai/runs` 也不返回 prompt / raw_response。
 - `DEBUG=false` 且 `AI_PROVIDER!=mock` 时,启动会校验该 provider 必填项是否齐全,缺失即拒绝启动。
 
-### 7. Prompt 模板管理
+### 6. 成本 / 超时 / 每日上限
 
-- 10 个默认模板由迁移 0002 seed;代码默认值在 `backend/app/services/ai/default_prompts.py`(DB 无对应行时回退到这里)。
-- 运行时按 key 取**最高版本的 active 行**;改了模板,下一次 AI 调用立即生效。
-- admin 在前端 `Prompts` 页或 `PUT /api/prompts/{id}` 编辑;`POST /api/prompts/{id}/clone` 克隆出新版本(默认未激活,验证后再勾选 active)。
+| 旋钮 | 作用 |
+|---|---|
+| `AI_TIMEOUT_SECONDS` | 单次上游请求超时;超时后任务 `failed` 并写 run |
+| `AI_MAX_RETRIES` | 仅对 5xx / 超时 / 网络错误重试;4xx 不重试 |
+| `AI_MAX_OUTPUT_TOKENS` | 模型输出上限(`max_tokens` / `max_output_tokens`) |
+| `AI_DAILY_CALL_LIMIT_PER_USER` | 每用户每 UTC 日 AI 调用软上限(默认 200,`<=0` 关闭) |
+
+超过每日上限时,任务**不调用 provider**、直接标记 `failed` 并写 `task.ai_failed`(`reason=daily_call_limit`)审计。
+
+### 7. Prompt 模板管理(克隆 / 启用 / 回滚)
+
+- 10 个默认模板由迁移 0002 seed;代码默认值在 `backend/app/services/ai/default_prompts.py`(DB 无对应行时回退到这里)。表上有 `(key, version)` 唯一约束,重复 `alembic upgrade head` 不会重复插入。
+- 运行时按 key 取**最高版本的 active 行**;改了 active 模板,下一次 AI 调用立即生效。
+- **克隆新版本**:`POST /api/prompts/{id}/clone` —— 基于某行复制出同 key 的 `version+1`,默认 `is_active=false`。
+- **启用新版本**:验证后 `PUT /api/prompts/{newId}` 设 `{"is_active": true}`;同 key 取最高版本的 active 行,因此新版本即刻接管。
+- **回滚模板**:把出问题的版本 `PUT {"is_active": false}`,并把要回退到的旧版本 `PUT {"is_active": true}`(无需删除任何行,版本历史保留)。
 
 ### 8. AI 调用日志
 
 - 每次调用(成功或失败)写一行 `ai_generation_runs`:provider / model / token / latency / 模板 key+version / 状态 / 错误。
 - 前端项目详情「任务」页每个任务卡展示对应 run 摘要;Dashboard 顶部展示今日 AI 调用量。
-- `GET /api/ai/runs` 行级隔离;admin 看全部。
+- `GET /api/ai/runs` 行级隔离:admin 看全部;项目 owner / 成员只看被授权项目;普通用户**不能**用 `?project_id=` 枚举别人项目的 run(返回 403)。
 
 ### 9. 常见错误
 
 | 现象 | 原因 / 处理 |
 |---|---|
 | `missing required config: CLAUDE_API_KEY ...` 启动失败 | 选了非 mock provider 但没配齐 Key/Model;补 `.env` 后重启 |
-| 任务 `failed`,error 含 `schema validation failed` | 模型没按 JSON schema 输出;已自动 repair 一次仍失败 → 检查/调整该操作的 prompt 模板 |
-| 任务 `failed`,error 含 `json parse failed after repair` | 模型返回的根本不是 JSON;同上,强化模板里的"只输出 JSON"约束 |
-| `provider error: ... timeout` | 上游超时;调大 `AI_TIMEOUT_SECONDS` 或 `AI_MAX_RETRIES` |
-| `provider error: ... 404 ... model` | `*_MODEL` 名称错误或该账号无权访问 |
-| 本地模型连不上(`Connection refused`) | `LOCAL_LLM_BASE_URL` 不可达;确认本地服务在跑、Docker 网络能到宿主机 |
+| `model not found` / `provider error: ... 404 ... model` | `*_MODEL` 名称错误、未 `ollama pull`、或该账号无权访问;核对模型 id |
+| `provider error: ... timeout` | 上游超时;调大 `AI_TIMEOUT_SECONDS`,或本地模型太慢/未加载 |
+| 任务 `failed`,error 含 `schema validation failed` | 模型输出不符合 JSON schema;已自动 repair 一次仍失败 → 调整该操作的 prompt 模板 |
+| 任务 `failed`,error 含 `json parse failed after repair` | 模型返回的根本不是 JSON(invalid json);强化模板"只输出 JSON、无 code fence"约束,或换更听话的模型 |
+| `request error 401` / `403`(4xx,**不重试**) | Key 失效 / 无权限 / 余额不足;换 Key 或检查账号,改完重启 |
+| 本地模型连不上(`connection error` / `Connection refused`) | `LOCAL_LLM_BASE_URL` 不可达;确认本地服务在跑、端口对、Docker 网络能到宿主机 |
+| `request error 400 ... maximum context length` / token limit exceeded | 输入+输出超模型上限;减小 `AI_MAX_OUTPUT_TOKENS` 或缩短输入/模板 |
+| 任务 `failed`,error 含 `daily AI call limit exceeded` | 该用户当日调用数超 `AI_DAILY_CALL_LIMIT_PER_USER`;次日重置,或调大该值 |
 
 ---
 

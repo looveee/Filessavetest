@@ -124,3 +124,24 @@ def login_ip_key() -> str: return "login_ip"
 def login_user_key() -> str: return "login_user"
 def register_ip_key() -> str: return "register_ip"
 def lookup_ip_key() -> str: return "lookup_ip"
+
+
+def ai_daily_call_check(user_id: Optional[int], limit: Optional[int] = None) -> Tuple[bool, int]:
+    """Count one AI call against a user's per-UTC-day soft cap.
+
+    Returns (allowed, count_so_far). Increments the counter as a side effect,
+    so each call to this function represents one attempted AI generation.
+
+    Fail-open like the rest of the limiter: if Redis is down, or the limit is
+    disabled (<= 0), or user_id is None, we allow and report count 0.
+    """
+    from datetime import datetime, timezone
+
+    if user_id is None:
+        return True, 0
+    lim = settings.AI_DAILY_CALL_LIMIT_PER_USER if limit is None else limit
+    if lim is None or lim <= 0:
+        return True, 0
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    allowed, count, _ttl = hit(f"ai_daily:{user_id}:{day}", lim, 86400)
+    return allowed, count

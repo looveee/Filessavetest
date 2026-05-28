@@ -97,15 +97,20 @@ def _seed_prompts() -> None:
     )
 
     bind = op.get_bind()
+    # Idempotent on (key, version): re-seeding (e.g. after a stamp) never
+    # duplicates a row already present, and the uq_prompt_key_version
+    # constraint is the hard backstop if two seeders ever race.
     existing = {
-        row[0]
-        for row in bind.execute(sa.text("SELECT key FROM prompt_templates")).fetchall()
+        (row[0], row[1])
+        for row in bind.execute(
+            sa.text("SELECT key, version FROM prompt_templates")
+        ).fetchall()
     }
 
     now = datetime.utcnow()
     rows = []
     for d in DEFAULT_PROMPT_TEMPLATES.values():
-        if d["key"] in existing:
+        if (d["key"], d["version"]) in existing:
             continue
         rows.append({
             "key": d["key"],

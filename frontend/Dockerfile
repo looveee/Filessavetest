@@ -1,9 +1,9 @@
 # ==== Stage 1: deps ====
 FROM node:18-alpine AS deps
 WORKDIR /app
-COPY package.json ./
-# Use npm install (not ci) since we don't ship a lockfile
-RUN npm install --no-audit --no-fund
+# Lockfile IS committed — use `npm ci` for a reproducible, lockfile-exact install.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 # ==== Stage 2: builder ====
 FROM node:18-alpine AS builder

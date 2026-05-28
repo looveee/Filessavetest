@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .base import BaseProvider, ProviderConfigError
+from .base import BaseProvider, JSON_ONLY_NUDGE, ProviderConfigError
 from .schemas import AIResponse
 
 _DEFAULT_BASE = "https://api.openai.com/v1"
@@ -44,7 +44,7 @@ class OpenAIProvider(BaseProvider):
             "max_tokens": self.max_output_tokens,
             "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": system or ""},
+                {"role": "system", "content": (system or "") + JSON_ONLY_NUDGE},
                 {"role": "user", "content": user or ""},
             ],
         }

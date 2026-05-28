@@ -11,6 +11,7 @@ storage/assets/*
 !storage/assets/.gitkeep
 *.log
 
-# Frontend build artifacts (Dockerfile uses `npm install`, no lockfile shipped)
-package-lock.json
+# Frontend build artifacts.
+# package-lock.json IS committed (Docker/CI build with `npm ci`).
+# Only the TypeScript incremental build cache is ignored.
 *.tsbuildinfo

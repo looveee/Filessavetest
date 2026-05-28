@@ -9,6 +9,7 @@ import uuid
 import pytest
 
 from app.services.ai import ai_service, get_provider, OP_SCHEMAS
+from app.services.ai.json_repair import repair_loads
 
 
 def _u() -> str:
@@ -124,6 +125,177 @@ def test_repair_failure_records_failed_run(db_session, monkeypatch):
     run = db_session.query(AIGenerationRun).order_by(AIGenerationRun.id.desc()).first()
     assert run.status == "failed"
     assert run.error_message
+
+
+# ---------------------------------------------------------------------
+# 6. json_repair handles the messy shapes real models emit
+# ---------------------------------------------------------------------
+def test_repair_strips_markdown_code_fence():
+    raw = '```json\n{"a": 1, "b": "x"}\n```'
+    assert repair_loads(raw) == {"a": 1, "b": "x"}
+
+
+def test_repair_extracts_object_from_surrounding_prose():
+    raw = 'Sure, here is the JSON you asked for:\n{"a": 1, "b": [2, 3]}\nHope this helps!'
+    assert repair_loads(raw) == {"a": 1, "b": [2, 3]}
+
+
+def test_repair_tolerates_trailing_comma():
+    assert repair_loads('{"a": 1, "b": 2,}') == {"a": 1, "b": 2}
+
+
+def test_repair_raises_on_non_json_text():
+    with pytest.raises(ValueError):
+        repair_loads("I'm sorry, I can't help with that.")
+
+
+# ---------------------------------------------------------------------
+# 7. HTTP retry policy: 5xx retries, 4xx does NOT, timeout retries then fails
+# ---------------------------------------------------------------------
+class _FakeResp:
+    def __init__(self, status_code, text="upstream said no"):
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        return {"ok": True}
+
+
+def _fake_client_factory(behavior, calls):
+    """behavior: callable(call_index) -> _FakeResp, or raises."""
+    import httpx
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            i = calls["n"]
+            calls["n"] += 1
+            return behavior(i)
+
+    return _FakeClient, httpx
+
+
+def test_http_post_retries_on_5xx_then_raises(monkeypatch):
+    from app.services.ai import base as B
+
+    calls = {"n": 0}
+    FakeClient, httpx = _fake_client_factory(lambda i: _FakeResp(503), calls)
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    p = B.BaseProvider(max_retries=2)
+    with pytest.raises(B.ProviderServerError):
+        p._http_post("http://x", {}, {})
+    assert calls["n"] == 3  # initial + 2 retries
+
+
+def test_http_post_does_not_retry_on_4xx(monkeypatch):
+    from app.services.ai import base as B
+
+    calls = {"n": 0}
+    FakeClient, httpx = _fake_client_factory(lambda i: _FakeResp(401), calls)
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    p = B.BaseProvider(max_retries=3)
+    with pytest.raises(B.ProviderClientError):
+        p._http_post("http://x", {}, {})
+    assert calls["n"] == 1  # 4xx fails fast, no retry
+
+
+def test_http_post_timeout_retries_then_raises(monkeypatch):
+    from app.services.ai import base as B
+    import httpx
+
+    calls = {"n": 0}
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            calls["n"] += 1
+            raise httpx.TimeoutException("slow")
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+
+    p = B.BaseProvider(max_retries=1, timeout=5)
+    with pytest.raises(B.ProviderTimeoutError):
+        p._http_post("http://x", {}, {})
+    assert calls["n"] == 2  # initial + 1 retry
+
+
+def test_http_post_succeeds_first_try(monkeypatch):
+    from app.services.ai import base as B
+
+    calls = {"n": 0}
+    FakeClient, httpx = _fake_client_factory(lambda i: _FakeResp(200), calls)
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    p = B.BaseProvider(max_retries=2)
+    body, latency = p._http_post("http://x", {}, {})
+    assert body == {"ok": True}
+    assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------
+# 8. Per-user daily AI-call soft cap
+# ---------------------------------------------------------------------
+def test_daily_limit_disabled_or_no_user():
+    from app.services.ratelimit import ai_daily_call_check
+
+    allowed, count = ai_daily_call_check(1, limit=0)  # disabled
+    assert allowed and count == 0
+    allowed, _ = ai_daily_call_check(None)  # anonymous
+    assert allowed
+
+
+def test_daily_limit_blocks_when_over(monkeypatch):
+    import app.services.ratelimit as RL
+
+    monkeypatch.setattr(RL, "hit", lambda *a, **k: (False, 201, 60))
+    allowed, count = RL.ai_daily_call_check(7, limit=200)
+    assert not allowed and count == 201
+
+
+def test_daily_limit_marks_task_failed(db_session, monkeypatch):
+    """When over the daily cap, the dispatcher fails the task and never calls
+    the provider."""
+    import app.tasks.ai_tasks as T
+    from app.models import User, Project, GenerationTask, TaskType, TaskStatus
+
+    uname = f"lim_{_u()}"
+    u = User(email=f"{uname}@example.com", username=uname, hashed_password="x", is_admin=False)
+    db_session.add(u)
+    db_session.commit()
+    p = Project(name=f"lim {uname}", owner_id=u.id)
+    db_session.add(p)
+    db_session.commit()
+    task = GenerationTask(
+        project_id=p.id, task_type=TaskType.outline_generation,
+        status=TaskStatus.pending, owner_id=u.id, created_by=u.id, input_data={},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    monkeypatch.setattr(T, "ai_daily_call_check", lambda *a, **k: (False, 999))
+    rejected = T._daily_limit_exceeded(db_session, task)
+    assert rejected is True
+    db_session.refresh(task)
+    assert task.status == TaskStatus.failed
+    assert "limit" in (task.error or "").lower()
 
 
 # ---------------------------------------------------------------------

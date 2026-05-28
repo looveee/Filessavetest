@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.services.ai import ai_service
 from app.services.audit import log_audit
+from app.services.ratelimit import ai_daily_call_check
 
 
 def _set_status(db, task: GenerationTask, status: TaskStatus, **fields):
@@ -55,6 +56,13 @@ def _ai_meta(resp) -> dict:
     }
 
 
+def _audit_started(db, task: GenerationTask):
+    log_audit(db, None, "task.ai_started",
+              project_id=task.project_id, task_id=task.id,
+              target_type="task", target_id=task.id,
+              after={"task_type": getattr(task.task_type, "value", str(task.task_type))})
+
+
 def _audit_completed(db, task: GenerationTask, resp):
     log_audit(db, None, "task.ai_completed",
               project_id=task.project_id, task_id=task.id,
@@ -76,6 +84,24 @@ def _fail(db, task: GenerationTask, resp_or_err, msg: str):
     _audit_failed(db, task, resp_or_err)
 
 
+def _daily_limit_exceeded(db, task: GenerationTask) -> bool:
+    """Enforce the per-user daily AI-call cap. Returns True (and fails the
+    task) when the user is over the limit. video_generation makes no provider
+    call, so it is exempt."""
+    if task.task_type == TaskType.video_generation:
+        return False
+    allowed, count = ai_daily_call_check(task.created_by)
+    if allowed:
+        return False
+    msg = f"daily AI call limit exceeded (count={count})"
+    _set_status(db, task, TaskStatus.failed, error=msg)
+    log_audit(db, None, "task.ai_failed",
+              project_id=task.project_id, task_id=task.id,
+              target_type="task", target_id=task.id,
+              after={"error": msg, "reason": "daily_call_limit"})
+    return True
+
+
 @celery_app.task(bind=True, name="app.tasks.ai_tasks.run_generation_task")
 def run_generation_task(self, task_id: int):
     """Dispatch a GenerationTask by its task_type and run the corresponding AI op."""
@@ -85,7 +111,14 @@ def run_generation_task(self, task_id: int):
         if not task:
             return {"ok": False, "error": "task not found"}
 
+        # Daily soft-cap check BEFORE we touch the provider. Over-limit tasks
+        # are marked failed and never call out.
+        if _daily_limit_exceeded(db, task):
+            return {"ok": False, "error": "daily AI call limit exceeded"}
+
         _set_status(db, task, TaskStatus.running, celery_task_id=self.request.id)
+        if task.task_type != TaskType.video_generation:
+            _audit_started(db, task)
 
         try:
             if task.task_type == TaskType.outline_generation:
