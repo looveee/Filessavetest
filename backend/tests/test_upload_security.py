@@ -2,52 +2,45 @@
 
 Exercises the path-traversal / extension-whitelist defences in
 `POST /projects/{id}/source` through the real FastAPI app.
+
+Filename policy (v0.6.2, strategy A):
+  - Any path-like name (contains / \\ NUL .. or an absolute/drive marker) is
+    REJECTED with 400 — never silently basenamed.
+  - Ordinary special characters (spaces, punctuation, CJK) are ALLOWED and
+    sanitized into a separator-free display name.
+  - Only .txt. The on-disk file is a UUID name, never the user's filename.
+
+Users come from the DB factory (conftest), so these tests don't hit the
+register rate limiter.
 """
 import io
-import time
 import uuid
 
 import pytest
 
 
-def _register_admin(client):
-    """Register a user. The first registered user becomes admin; if the DB
-    has prior data this user will not be admin and we fall back to creating
-    a project under whatever permissions we have. For upload tests we only
-    need someone who can create a project + upload."""
-    suffix = uuid.uuid4().hex[:8]
-    payload = {
-        "username": f"upload_{suffix}",
-        "email":    f"upload_{suffix}@example.com",
-        "password": "UploadTest123!",
-    }
-    r = client.post("/api/auth/register", json=payload)
-    assert r.status_code == 200, r.text
-    return r.json()["access_token"]
-
-
-def _new_project(client, token):
+def _new_project(client, headers):
     r = client.post(
         "/api/projects",
         json={"name": f"upload-test-{uuid.uuid4().hex[:6]}"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     assert r.status_code == 200, r.text
     return r.json()["id"]
 
 
-def _upload(client, token, pid, filename, content):
+def _upload(client, headers, pid, filename, content):
     return client.post(
         f"/api/projects/{pid}/source",
         files={"file": (filename, io.BytesIO(content), "text/plain")},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
 
-def test_normal_txt_accepted(client):
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    r = _upload(client, tok, pid, "novel.txt", "hello world\n第一章".encode("utf-8"))
+def test_normal_txt_accepted(client, user_factory, auth_headers):
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, "novel.txt", "hello world\n第一章".encode("utf-8"))
     assert r.status_code == 200, r.text
     assert r.json()["filename"] == "novel.txt"
 
@@ -56,71 +49,83 @@ def test_normal_txt_accepted(client):
     "novel.exe",
     "novel.txt.exe",
     "novel.pdf",
-    "../../etc/passwd",          # has no .txt
     "novel",                     # no extension
 ])
-def test_non_txt_rejected(client, name):
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    r = _upload(client, tok, pid, name, b"contents")
+def test_non_txt_rejected(client, user_factory, auth_headers, name):
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, name, b"contents")
     assert r.status_code == 400, f"{name} should be rejected, got {r.status_code} {r.text}"
 
 
-@pytest.mark.parametrize("name,want_basename", [
-    ("../../etc/passwd.txt",          "passwd.txt"),
-    ("..\\..\\windows\\hosts.txt",    "hosts.txt"),
-    ("/etc/shadow.txt",               "shadow.txt"),
-    ("a/b/c/inner.txt",               "inner.txt"),
+# NOTE: Windows drive paths ("C:\\...") and NUL-in-filename are exercised at
+# the function level in test_upload_safety.py — the ASGI multipart transport
+# mangles those before they reach the endpoint, so they're not reliable to
+# assert over HTTP. Here we cover the path-like shapes that arrive verbatim.
+@pytest.mark.parametrize("name", [
+    "../evil.txt",
+    "..\\evil.txt",
+    "/tmp/evil.txt",
+    "nested/evil.txt",
+    "nested\\evil.txt",
+    "../../etc/passwd.txt",
 ])
-def test_path_traversal_neutralized(client, name, want_basename):
-    """The persisted filename must be the basename only — never a path."""
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    r = _upload(client, tok, pid, name, b"clean content")
-    assert r.status_code == 200, r.text
-    fn = r.json()["filename"]
-    # Basename comparison after the sanitizer's regex (which may have replaced chars)
-    assert "/" not in fn and "\\" not in fn
-    assert ".." not in fn
-    assert fn.endswith(".txt")
-    # The dangerous-looking path component is gone
-    assert want_basename in fn or want_basename.replace(".txt", "") in fn
+def test_path_like_filename_rejected(client, user_factory, auth_headers, name):
+    """Strategy A: any path-like filename is rejected outright with 400 —
+    we do NOT basename it into an accepted upload."""
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, name, b"clean content")
+    assert r.status_code == 400, f"{name!r} must be rejected, got {r.status_code} {r.text}"
 
 
-def test_dotfile_rejected(client):
-    """A name like `.txt` or `.bashrc.txt` after lstrip('.') becomes either
-    empty or strips the leading dots; never a hidden file."""
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    # `.txt` -> after lstrip('.') -> `txt` -> no extension -> 400
-    r = _upload(client, tok, pid, ".txt", b"x")
+def test_dotfile_rejected(client, user_factory, auth_headers):
+    """A leading-dot name (`.txt`, `.bashrc.txt`) is rejected — never a hidden
+    file, never an extension-only name."""
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, ".txt", b"x")
     assert r.status_code == 400
 
 
-def test_null_byte_in_content_rejected(client):
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    r = _upload(client, tok, pid, "novel.txt", b"hello\x00world")
+def test_null_byte_in_content_rejected(client, user_factory, auth_headers):
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, "novel.txt", b"hello\x00world")
     assert r.status_code == 400
 
 
-def test_oversize_rejected(client):
+def test_empty_filename_rejected(client, user_factory, auth_headers):
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, "", b"x")
+    # Either our 400 (empty name) or FastAPI's 422 (no valid file part) — both
+    # are rejections; the multipart layer decides which fires first.
+    assert r.status_code in (400, 422), r.text
+
+
+def test_oversize_rejected(client, user_factory, auth_headers):
     """50 MB hard limit (config default). We send 51 MB."""
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
     big = b"a" * (51 * 1024 * 1024)
-    r = _upload(client, tok, pid, "huge.txt", big)
+    r = _upload(client, h, pid, "huge.txt", big)
     assert r.status_code == 413
 
 
-def test_filename_special_chars_replaced(client):
-    """Shell-meta characters in filename get replaced with underscores so a
-    downstream tool that trusts the filename can't be tricked."""
-    tok = _register_admin(client)
-    pid = _new_project(client, tok)
-    r = _upload(client, tok, pid, "a; rm -rf /.txt", b"safe")
+@pytest.mark.parametrize("name", [
+    "my story @ draft #1!.txt",
+    "中文 文件名 @1.txt",
+])
+def test_special_chars_sanitized(client, user_factory, auth_headers, name):
+    """Ordinary special characters (no path separators) are accepted; the
+    stored display name is sanitized and separator-free."""
+    h = auth_headers(user_factory())
+    pid = _new_project(client, h)
+    r = _upload(client, h, pid, name, b"safe")
     assert r.status_code == 200, r.text
     fn = r.json()["filename"]
-    # No shell metachars in stored name
-    for ch in [";", "&", "|", "`", "$", "(", ")", " "]:
-        assert ch not in fn, f"special char {ch!r} survived sanitization in {fn!r}"
+    assert fn.endswith(".txt")
+    # No path separators or dangerous shell metacharacters survive.
+    for ch in ["/", "\\", "\x00", ";", "&", "|", "`", "$", "(", ")", " ", "@", "#", "!"]:
+        assert ch not in fn, f"char {ch!r} survived sanitization in {fn!r}"

@@ -6,7 +6,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "AI ShortVideo Platform"
-    APP_VERSION: str = "0.6.1"
+    APP_VERSION: str = "0.6.2"
     DEBUG: bool = True
     API_PREFIX: str = "/api"
 

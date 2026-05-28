@@ -299,43 +299,12 @@ def test_daily_limit_marks_task_failed(db_session, monkeypatch):
 
 
 # ---------------------------------------------------------------------
-# API tests — need a live app + DB
+# API tests — need a live app + DB. Users come from the DB factory (conftest)
+# so these never hit the register rate limiter.
 # ---------------------------------------------------------------------
-def _register(client, prefix):
-    name = f"{prefix}_{_u()}"
-    r = client.post("/api/auth/register", json={
-        "username": name, "email": f"{name}@example.com", "password": "Passw0rd!",
-    })
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def _admin_and_user(client):
-    import app.database as dbmod
-    from app.models import User
-
-    admin = _register(client, "adm")
-    user = _register(client, "usr")
-    # Force admin flag in DB regardless of registration order.
-    s = dbmod.SessionLocal()
-    try:
-        u = s.query(User).filter(User.id == admin["user"]["id"]).first()
-        u.is_admin = True
-        u2 = s.query(User).filter(User.id == user["user"]["id"]).first()
-        u2.is_admin = False
-        s.commit()
-    finally:
-        s.close()
-    return admin["access_token"], user["access_token"]
-
-
-def _auth(tok):
-    return {"Authorization": f"Bearer {tok}"}
-
-
-def test_ai_providers_endpoint(client):
-    admin_tok, user_tok = _admin_and_user(client)
-    r = client.get("/api/ai/providers", headers=_auth(user_tok))
+def test_ai_providers_endpoint(client, user_factory, auth_headers):
+    user_h = auth_headers(user_factory(is_admin=False))
+    r = client.get("/api/ai/providers", headers=user_h)
     assert r.status_code == 200
     body = r.json()
     assert "current_provider" in body and "providers" in body
@@ -345,25 +314,27 @@ def test_ai_providers_endpoint(client):
         assert set(p.keys()) <= allowed
 
 
-def test_ai_test_admin_only(client):
-    admin_tok, user_tok = _admin_and_user(client)
-    r = client.post("/api/ai/test", json={"prompt": "hello"}, headers=_auth(user_tok))
+def test_ai_test_admin_only(client, user_factory, auth_headers):
+    admin_h = auth_headers(user_factory(is_admin=True))
+    user_h = auth_headers(user_factory(is_admin=False))
+    r = client.post("/api/ai/test", json={"prompt": "hello"}, headers=user_h)
     assert r.status_code == 403
-    r = client.post("/api/ai/test", json={"prompt": "hello"}, headers=_auth(admin_tok))
+    r = client.post("/api/ai/test", json={"prompt": "hello"}, headers=admin_h)
     assert r.status_code == 200, r.text
     assert r.json()["provider"] == "mock"
     assert r.json()["ok"] is True
 
 
-def test_prompt_templates_admin_only(client):
-    admin_tok, user_tok = _admin_and_user(client)
+def test_prompt_templates_admin_only(client, user_factory, auth_headers):
+    admin_h = auth_headers(user_factory(is_admin=True))
+    user_h = auth_headers(user_factory(is_admin=False))
 
     # non-admin cannot list
-    r = client.get("/api/prompts", headers=_auth(user_tok))
+    r = client.get("/api/prompts", headers=user_h)
     assert r.status_code == 403
 
     # admin can list (seeded by migration; service-default fallback otherwise)
-    r = client.get("/api/prompts", headers=_auth(admin_tok))
+    r = client.get("/api/prompts", headers=admin_h)
     assert r.status_code == 200
     items = r.json()
     if not items:
@@ -371,14 +342,14 @@ def test_prompt_templates_admin_only(client):
     pid = items[0]["id"]
 
     # non-admin cannot edit
-    r = client.put(f"/api/prompts/{pid}", json={"name": "hacked"}, headers=_auth(user_tok))
+    r = client.put(f"/api/prompts/{pid}", json={"name": "hacked"}, headers=user_h)
     assert r.status_code == 403
 
     # admin can edit + clone
-    r = client.put(f"/api/prompts/{pid}", json={"name": "renamed"}, headers=_auth(admin_tok))
+    r = client.put(f"/api/prompts/{pid}", json={"name": "renamed"}, headers=admin_h)
     assert r.status_code == 200 and r.json()["name"] == "renamed"
 
-    r = client.post(f"/api/prompts/{pid}/clone", headers=_auth(admin_tok))
+    r = client.post(f"/api/prompts/{pid}/clone", headers=admin_h)
     assert r.status_code == 200
     assert r.json()["version"] >= 2
     assert r.json()["is_active"] is False

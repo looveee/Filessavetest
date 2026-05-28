@@ -111,3 +111,86 @@ def flush_redis(has_redis):
     cli.flushdb()
     yield cli
     cli.flushdb()
+
+
+# ---------------------------------------------------------------------
+# Test user factory + auth helpers (v0.6.2)
+#
+# Non-auth/non-rate-limit tests MUST create users through this factory
+# instead of POSTing /api/auth/register. The TestClient sends every request
+# from a single client IP, so dozens of register calls would pile into the
+# same per-IP bucket and trip the (production-default) limiter, making
+# unrelated tests flaky. Creating users straight in the DB sidesteps that
+# without weakening any production default.
+# ---------------------------------------------------------------------
+DEFAULT_TEST_PASSWORD = "Passw0rd!"
+
+
+def create_test_user(db, username=None, email=None,
+                     password=DEFAULT_TEST_PASSWORD, is_admin=False):
+    """Insert a user directly into the DB with a properly hashed password.
+
+    username/email auto-generate (unique) when omitted. Returns the User.
+    """
+    import uuid as _uuid
+    from app.models import User
+    from app.security import hash_password
+
+    if username is None:
+        username = "u_" + _uuid.uuid4().hex[:10]
+    if email is None:
+        email = f"{username}@example.com"
+    u = User(
+        username=username,
+        email=email,
+        full_name=username,
+        hashed_password=hash_password(password),
+        is_admin=is_admin,
+        is_active=True,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture()
+def user_factory(db_session):
+    """Factory fixture: make(is_admin=False, ...) -> committed User."""
+    def _make(is_admin=False, username=None, email=None,
+              password=DEFAULT_TEST_PASSWORD):
+        return create_test_user(db_session, username, email, password, is_admin)
+    return _make
+
+
+@pytest.fixture()
+def auth_headers(client):
+    """Return a helper that logs a user in via the real /auth/login chain and
+    yields an Authorization header. Going through login (rather than minting a
+    JWT) keeps the real authentication path under test."""
+    def _headers(user, password=DEFAULT_TEST_PASSWORD):
+        r = client.post("/api/auth/login",
+                        json={"username": user.username, "password": password})
+        assert r.status_code == 200, r.text
+        return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    return _headers
+
+
+@pytest.fixture(autouse=True)
+def _isolate_rate_limits():
+    """Per-test isolation of the Redis rate-limit namespace.
+
+    Clears all ``rl:*`` keys before each test so a per-IP bucket built up by
+    one test never bleeds into the next. This is a TEST-ONLY fixture (it only
+    runs under pytest against the test Redis DB) and changes no production
+    default. No-op when Redis is unreachable.
+    """
+    try:
+        import redis as _r
+        cli = _r.from_url(os.environ["REDIS_URL"],
+                          socket_connect_timeout=1, socket_timeout=1)
+        for k in cli.scan_iter("rl:*"):
+            cli.delete(k)
+    except Exception:
+        pass
+    yield

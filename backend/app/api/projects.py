@@ -1,6 +1,5 @@
 """Project endpoints — CRUD, members, episodes, source text upload."""
 import os
-import re
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy.orm import Session
@@ -17,6 +16,9 @@ from app.deps import get_current_user
 from app.permissions import Permission, require_permission, has_permission
 from app.services.audit import log_audit, snapshot
 from app.config import settings
+from app.utils.upload_safety import (
+    validate_upload_filename, sanitize_display_filename, build_storage_filename,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -198,26 +200,11 @@ async def upload_source(project_id: int, request: Request,
     require_permission(db, user, project_id, Permission.SOURCE_UPLOAD)
 
     # ---- 1. validate filename / extension ----
+    # Strategy A: reject path-like names outright (separators / NUL / .. /
+    # absolute). Ordinary special chars are allowed and sanitized for display.
     raw_name = file.filename or ""
-    # Take only the basename to defeat ../ or absolute paths from the client.
-    safe_name = os.path.basename(raw_name.replace("\\", "/")).strip()
-    # Strip leading dots so a file like ".bashrc" can't slip through and so
-    # we never produce a hidden file on disk.
-    safe_name = safe_name.lstrip(".")
-    # Whitelist: letters, digits, dot, dash, underscore. Replace everything
-    # else with underscore. This also gets rid of NUL bytes and Windows
-    # reserved chars.
-    safe_name = re.sub(r"[^A-Za-z0-9._\-]", "_", safe_name)
-    # Bound length so we don't blow up the path on disk.
-    if len(safe_name) > 100:
-        stem, ext = os.path.splitext(safe_name)
-        safe_name = stem[:100 - len(ext)] + ext
-    if not safe_name:
-        raise HTTPException(400, "invalid filename")
-    # Extension check — only .txt allowed.
-    _, ext = os.path.splitext(safe_name.lower())
-    if ext != ".txt":
-        raise HTTPException(400, "only .txt files are allowed")
+    validate_upload_filename(raw_name)
+    display_name = sanitize_display_filename(raw_name)
 
     # ---- 2. validate / decode content ----
     raw = await file.read()
@@ -236,9 +223,11 @@ async def upload_source(project_id: int, request: Request,
         raise HTTPException(400, "file contains null bytes; not a text file")
 
     # ---- 3. write to disk under a guaranteed-safe path ----
+    # The on-disk name is a UUID — the user's original filename is NEVER used
+    # to build a path, so collisions and enumeration are impossible.
     upload_dir = os.path.realpath(settings.UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
-    final_name = f"p{project_id}_{safe_name}"
+    final_name = f"p{project_id}_{build_storage_filename(raw_name)}"
     path = os.path.realpath(os.path.join(upload_dir, final_name))
     # Belt + braces: confirm the resolved path is still under UPLOAD_DIR.
     if not (path == upload_dir or path.startswith(upload_dir + os.sep)):
@@ -248,7 +237,7 @@ async def upload_source(project_id: int, request: Request,
 
     st = SourceText(
         project_id=project_id,
-        filename=safe_name,
+        filename=display_name,
         content=text,
         char_count=len(text),
         uploaded_by=user.id,

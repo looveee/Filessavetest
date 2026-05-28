@@ -1,8 +1,17 @@
 # AI 短视频半自动生产平台 / AI Short-Video Pipeline
 
-> **当前版本: v0.6.1**
+> **当前版本: v0.6.2**
 >
 > 多用户 / 私有项目流 / 多人协作 / 显式权限矩阵 RBAC / **可配置可替换 AI Provider** / 人工在环审核 / 审计日志 / 多账号排期发布 / Redis 限流 / 生产启动安全校验 / Alembic 数据库迁移。
+
+## v0.6.2 关键改动 — 可信回归基线 & 上传文件名策略
+
+v0.6.2 不引入新功能(不做 TTS / 视频生成 / WebSocket / 自动发布,不改 AI Provider 功能),只把测试与上传安全收敛成可信基线:
+
+- **修复 pytest 串扰**:普通测试改用 DB 工厂(`create_test_user` / `user_factory` / `auth_headers`)而非注册接口;只有限流测试和 smoke 仍打 `/api/auth/register`;新增 autouse fixture 逐用例清理 Redis `rl:*` 命名空间。**生产默认限流一律不放宽**。全量单进程 `pytest backend/tests/ -v` 现稳定通过、可重复跑。
+- **上传文件名策略 A(明确化)**:路径型文件名(`/` `\` NUL `..` 绝对路径/盘符)**一律 400 拒绝**;普通特殊字符(空格/标点/中文)安全化后放行;只收 `.txt`;实际落盘用 **UUID 文件名**(`build_storage_filename`),绝不用原始 filename 拼路径。统一实现在 `backend/app/utils/upload_safety.py`。
+
+详见 **第十五节末 · 测试环境与限流说明 / 上传文件名策略**。
 
 ## v0.6.1 关键改动 — 真实 Provider 稳定性 & 可复现构建
 
@@ -463,6 +472,27 @@ bash scripts/smoke_test.sh
 #   source .env 决定用哪个 provider(mock 必通,真实 provider 同样可跑)
 API_BASE=http://localhost:8000 bash scripts/ai_provider_smoke.sh
 ```
+
+### 测试环境与限流说明(v0.6.2)
+
+整套 `pytest backend/tests/ -v` 是**可信回归基线**:单进程全量跑稳定通过、可重复跑而不串扰。背后的几条规则:
+
+1. **生产默认限流不因测试放宽**。`config.py` 里的 `RL_*` 默认值保持原样;测试不引入任何"生产安全弱化开关"。
+2. **普通测试用 DB factory 创建用户**,不打注册接口。`conftest.py` 提供:
+   - `create_test_user(db, username, email, password, is_admin=False)` —— 直接写库,密码走正式 `hash_password`;
+   - `user_factory` fixture —— `make(is_admin=False)` 返回已落库的 User;
+   - `auth_headers` fixture —— 通过真实 `/api/auth/login` 换取 token(验证完整认证链路)。
+3. **只有限流/注册类测试**(`test_rate_limit.py`)和 `scripts/smoke_test.sh` 仍打 `/api/auth/register`。其余测试一律走 factory,因此 TestClient 共享 IP 也不会撞上 register 的 10/小时限流。
+4. **限流命名空间逐用例隔离**:`conftest.py` 的 autouse fixture `_isolate_rate_limits` 在每个用例前清掉 Redis 里的 `rl:*` 键(仅在 pytest + 测试库 db15 生效,绝不触碰生产)。限流测试本身仍真实验证 register / login-IP / username-failed / lookup 的 429 与审计落库。
+
+### 上传文件名策略(v0.6.2)
+
+`POST /api/projects/{id}/source` 的文件名处理(实现见 `backend/app/utils/upload_safety.py`):
+
+1. **路径型文件名一律 400 拒绝**:含路径分隔符 `/` `\`、NUL 字节、`..` 路径段、绝对路径 / 盘符(`C:\`)的文件名直接拒,**不做 basename 后接受**。
+2. **普通特殊字符安全化后放行**:`my story @ draft #1!.txt`、`中文 文件名.txt` 之类(无路径分隔符)允许上传,展示名经 `sanitize_display_filename` 转为不含危险字符、保留 `.txt` 的安全名。
+3. **只允许 `.txt`**。
+4. **实际落盘用 UUID 文件名**(`build_storage_filename` → `p{pid}_{uuid}.txt`),**绝不**用用户原始 filename 拼路径,杜绝重名与枚举。
 
 ---
 
