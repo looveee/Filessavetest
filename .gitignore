@@ -10,3 +10,7 @@ storage/assets/*
 !storage/uploads/.gitkeep
 !storage/assets/.gitkeep
 *.log
+
+# Frontend build artifacts (Dockerfile uses `npm install`, no lockfile shipped)
+package-lock.json
+*.tsbuildinfo
