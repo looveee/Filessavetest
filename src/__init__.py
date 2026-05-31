@@ -13,6 +13,14 @@ from .config_manager import (
 from .event_bus import EventBus, Topic
 from .cv_engine import CVEngine, CVUpdate
 from .audio_engine import AudioEngine, AudioTick
+from .fusion_engine import (
+    AudioProcessor,
+    CollisionHit,
+    FixedDistanceWallCollider,
+    FusionEngine,
+    FusionResult,
+    MockMapCollider,
+)
 
 __all__ = [
     "AppConfig",
@@ -28,4 +36,10 @@ __all__ = [
     "CVUpdate",
     "AudioEngine",
     "AudioTick",
+    "AudioProcessor",
+    "CollisionHit",
+    "FixedDistanceWallCollider",
+    "FusionEngine",
+    "FusionResult",
+    "MockMapCollider",
 ]

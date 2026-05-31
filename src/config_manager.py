@@ -84,7 +84,16 @@ class CVConfig:
 class FusionConfig:
     """多模态融合模块配置。"""
     tolerance_radius_meters: float = 1.5  # 融合容差半径 (米)
-    min_confidence: float = 0.85          # 最小可信度阈值
+    min_confidence: float = 0.85          # 最小可信度阈值，低于此值的融合结果被丢弃
+    # --- 声源测角 (GCC-PHAT) 物理常数 ---
+    mic_distance_m: float = 0.18          # 双声道等效间距/模拟头围 (米)，用于 TDE->角度换算
+    speed_of_sound_mps: float = 343.0     # 声速 (米/秒, 常温空气)
+    band_lowcut_hz: float = 300.0         # GCC-PHAT 带通下限，截断低频底噪 (Hz)
+    band_highcut_hz: float = 3500.0       # GCC-PHAT 带通上限，截断高频噪声 (Hz)
+    gcc_interp: int = 4                   # GCC-PHAT 上采样倍数，提升 TDE 亚采样分辨率
+    # --- Mock 碰撞体 ---
+    collider_distance_m: float = 20.0     # MockMapCollider 假想墙距离 (米)
+
 
 
 @dataclass

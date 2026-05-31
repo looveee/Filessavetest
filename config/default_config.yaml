@@ -37,3 +37,11 @@ cv:
 fusion:
   tolerance_radius_meters: 1.5   # 融合容差半径 (米)，跨模态目标关联的空间阈值
   min_confidence: 0.85           # 融合结果的最小可信度，低于此值的目标将被丢弃
+  # 声源测角 (GCC-PHAT) 物理常数
+  mic_distance_m: 0.18           # 双声道等效间距 / 模拟头围 (米)
+  speed_of_sound_mps: 343.0      # 声速 (米/秒)
+  band_lowcut_hz: 300.0          # 带通下限，截断低频底噪 (Hz)
+  band_highcut_hz: 3500.0        # 带通上限，截断高频噪声 (Hz)
+  gcc_interp: 4                  # GCC-PHAT 上采样倍数，提升 TDE 亚采样分辨率
+  # Mock 碰撞体
+  collider_distance_m: 20.0      # MockMapCollider 假想墙距离 (米)
