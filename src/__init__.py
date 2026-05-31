@@ -10,6 +10,8 @@ from .config_manager import (
     RoiBBox,
     get_config,
 )
+from .event_bus import EventBus, Topic
+from .cv_engine import CVEngine, CVUpdate
 
 __all__ = [
     "AppConfig",
@@ -19,4 +21,8 @@ __all__ = [
     "FusionConfig",
     "RoiBBox",
     "get_config",
+    "EventBus",
+    "Topic",
+    "CVEngine",
+    "CVUpdate",
 ]

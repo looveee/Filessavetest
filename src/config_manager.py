@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field, fields, is_dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, Optional, get_type_hints
+from typing import Any, Callable, Dict, List, Optional, get_type_hints
 
 import yaml
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -260,6 +260,8 @@ class ConfigManager:
         self._config: AppConfig = AppConfig()  # 先以全默认值兜底，确保任何时刻 config 可用
         self._observer: Optional[BaseObserver] = None
         self._watching: bool = False
+        # 配置变更监听器：每当热重载产生实质变化时，回调 fn(new_config)。
+        self._change_listeners: List[Callable[[AppConfig], None]] = []
         self._initialized: bool = True
 
         _LOGGER.info("ConfigManager 初始化，工程根目录: %s", _PROJECT_ROOT)
@@ -308,9 +310,46 @@ class ConfigManager:
         changed = old_config != new_config
         if changed:
             _LOGGER.info("配置已热更新 ✔  %s", self._summarize(new_config))
+            self._notify_listeners(new_config)
         else:
             _LOGGER.info("配置重载完成，内容无变化。")
         return True
+
+    # -----------------------------------------------------------------
+    # 5.x 配置变更订阅（供 CVEngine 等模块响应热重载）
+    # -----------------------------------------------------------------
+    def register_change_listener(
+        self, listener: "Callable[[AppConfig], None]"
+    ) -> None:
+        """
+        注册配置变更监听器。每当热重载产生实质变化时，将以最新配置快照回调。
+
+        :param listener: 形如 ``fn(new_config: AppConfig) -> None`` 的可调用对象。
+        """
+        if not callable(listener):
+            raise TypeError("listener 必须为可调用对象")
+        with self._state_lock:
+            if listener not in self._change_listeners:
+                self._change_listeners.append(listener)
+
+    def unregister_change_listener(
+        self, listener: "Callable[[AppConfig], None]"
+    ) -> None:
+        """注销配置变更监听器（不存在时静默忽略）。"""
+        with self._state_lock:
+            if listener in self._change_listeners:
+                self._change_listeners.remove(listener)
+
+    def _notify_listeners(self, new_config: AppConfig) -> None:
+        """在锁外逐一回调监听器，单个监听器异常被隔离、不影响其余。"""
+        with self._state_lock:
+            listeners = list(self._change_listeners)
+        snapshot = copy.deepcopy(new_config)
+        for listener in listeners:
+            try:
+                listener(copy.deepcopy(snapshot))
+            except Exception as exc:  # noqa: BLE001  监听器异常不得拖垮配置中心
+                _LOGGER.exception("配置变更监听器回调异常: %s", exc)
 
     @staticmethod
     def _read_yaml(path: Path) -> Dict[str, Any]:
