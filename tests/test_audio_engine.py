@@ -188,6 +188,70 @@ def test_hot_reload_changes_threshold(bus):
     assert received == [], "高阈值热更新后，中能量信号不应再触发事件"
 
 
+def test_hot_switch_force_closes_active_event(bus):
+    """设备重开边界：处于 ACTIVE 时强制闭合应补发 is_end=True 并复位到 IDLE。"""
+    received: List[AudioTick] = []
+    bus.subscribe(Topic.AUDIO_TICK, lambda t: received.append(t))
+
+    cfg = _make_config(energy_threshold=0.05, vad_start_chunks=2, chunk_size=256)
+    engine = AudioEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
+
+    # 驱动进入 ACTIVE（连续 2 个高能量块）
+    engine._process_chunk(_loud())
+    engine._process_chunk(_loud())
+    assert engine._state is _VadState.ACTIVE
+    assert bus.join(timeout=2.0)
+
+    # 模拟采样参数变更触发的设备重开边界：强制闭合
+    engine._force_close_active_event()
+    assert bus.join(timeout=2.0)
+
+    # 状态机彻底复位，且恰好补发了一个事件结束帧
+    assert engine._state is _VadState.IDLE
+    ends = [t for t in received if t.is_speech_end]
+    assert len(ends) == 1, f"强制闭合应补发恰好一个 is_end，实际 {len(ends)}"
+    # 哨兵帧为纯控制边界，不携带伪造音频样本
+    assert ends[0].audio_array.shape[0] == 0, "is_end 哨兵帧不应注入伪造样本"
+
+    # 闭合后无悬挂：再来高能量应开启一次全新事件（新的 is_start）
+    received.clear()
+    engine._process_chunk(_loud())
+    engine._process_chunk(_loud())
+    assert bus.join(timeout=2.0)
+    assert any(t.is_speech_start for t in received), "闭合后应能正常开启新事件"
+
+
+def test_force_close_is_noop_when_idle(bus):
+    """IDLE 状态下强制闭合应为空操作，不发任何事件。"""
+    received: List[AudioTick] = []
+    bus.subscribe(Topic.AUDIO_TICK, lambda t: received.append(t))
+
+    cfg = _make_config(energy_threshold=0.05)
+    engine = AudioEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
+    assert engine._state is _VadState.IDLE
+
+    engine._force_close_active_event()
+    assert bus.join(timeout=1.0)
+    assert received == [], "IDLE 下强制闭合不应发布任何事件"
+
+
+def test_chunk_is_copied_not_aliased(bus):
+    """_as_float32 必须切断与底层缓冲的别名：就地覆写源数组不得污染已发出的切片。"""
+    cfg = _make_config()
+    engine = AudioEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
+
+    # 模拟采集库复用的环形缓冲
+    shared_buffer = np.ones((256, 2), dtype=np.float32) * 0.5
+    out = engine._as_float32(shared_buffer)
+    out_snapshot = out.copy()
+
+    # 采集线程"下一次 record" 就地覆写同一缓冲
+    shared_buffer[:] = -9.0
+
+    assert np.array_equal(out, out_snapshot), "切片被底层缓冲覆写污染——存在别名！"
+    assert not np.shares_memory(out, shared_buffer), "切片仍与源缓冲共享内存"
+
+
 def test_hot_reload_marks_params_dirty_on_samplerate_change(bus):
     """采样率变化应置脏标志，以驱动采集线程重开设备。"""
     fake_mgr = _FakeConfigManager(_make_config(sample_rate=48000))

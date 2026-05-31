@@ -135,6 +135,7 @@ class AudioEngine:
         self._channels: int = 2
         self._energy_threshold: float = 0.015
         self._vad_start_chunks: int = 3
+        self._vad_preroll_chunks: int = 8   # 起音预缓冲长度，保证 >= start_chunks
         self._vad_silence_chunks: int = 9  # 由静音时长换算而来
         self._params_dirty: bool = False    # 采样参数变更标志，触发采集设备重开
 
@@ -182,6 +183,8 @@ class AudioEngine:
             self._channels = max(1, int(a.channels))
             self._energy_threshold = float(a.energy_threshold)
             self._vad_start_chunks = max(1, int(a.vad_start_chunks))
+            # 预缓冲必须 >= start_chunks，否则会丢失触发块；小于时夹紧到 start_chunks。
+            self._vad_preroll_chunks = max(self._vad_start_chunks, int(a.vad_preroll_chunks))
             self._vad_silence_chunks = silence_chunks
 
     def _on_config_changed(self, cfg: "AppConfig") -> None:
@@ -252,6 +255,10 @@ class AudioEngine:
                 # 短暂退避后重试重开，避免在硬件持续异常时空转刷屏。
                 if self._stop_event.wait(timeout=0.5):
                     break
+            finally:
+                # 离开任一采集会话（重开 / 停止 / 异常）前，强制闭合可能悬挂的 ACTIVE 事件，
+                # 保证下游 is_start 必有配对的 is_end，杜绝状态机撕裂导致的缓冲膨胀。
+                self._force_close_active_event()
 
         _LOGGER.info("AudioEngine 采集主循环退出。")
 
@@ -268,15 +275,17 @@ class AudioEngine:
         with self._param_lock:
             threshold = self._energy_threshold
             start_n = self._vad_start_chunks
+            preroll_n = self._vad_preroll_chunks
             silence_n = self._vad_silence_chunks
 
         active = rms >= threshold
         record: _ChunkRecord = (chunk, ts, fid, rms)
 
         if self._state is _VadState.IDLE:
-            # 维护起音预缓冲：保留最近 start_n 个 chunk，以便事件开始时回补。
+            # 维护起音预缓冲：保留最近 preroll_n 个 chunk（>= start_n），
+            # 以便事件开始时回补 onset 之前的波形（对下游相位/GCC-PHAT 计算很关键）。
             self._preroll.append(record)
-            if len(self._preroll) > start_n:
+            if len(self._preroll) > preroll_n:
                 self._preroll.pop(0)
 
             if active:
@@ -318,6 +327,28 @@ class AudioEngine:
         self._preroll = []
         _LOGGER.debug("VAD: 声音事件结束，回到 IDLE。")
 
+    def _force_close_active_event(self) -> None:
+        """边界闭环：设备重开 / 停止时，若仍处于 ACTIVE，补发一个 is_end=True 的哨兵
+        切片并复位状态机。
+
+        否则下游（FusionEngine）会收到 is_start=True 却永远等不到 is_end=True，
+        造成特征拼接缓冲无限膨胀直至 OOM。哨兵切片携带空音频 (0, channels)——它是
+        纯控制边界，不向下游注入任何伪造样本（区别于填充整块静音）。
+
+        仅在采集线程内调用（run 的 finally 路径），故 VAD 状态访问无需加锁。
+        """
+        if self._state is not _VadState.ACTIVE:
+            return
+        with self._param_lock:
+            channels = self._channels
+        self._frame_id += 1
+        sentinel: _ChunkRecord = (
+            np.zeros((0, channels), dtype=np.float32), time.monotonic(), self._frame_id, 0.0
+        )
+        self._emit_tick(sentinel, is_start=False, is_end=True)
+        _LOGGER.info("边界闭环：ACTIVE 事件被强制结束（设备重开/停止），已补发 is_end。")
+        self._reset_vad()
+
     def _emit_tick(self, record: _ChunkRecord, is_start: bool, is_end: bool) -> None:
         """打包 AudioTick 并发布到 AUDIO_TICK 主题。"""
         chunk, ts, fid, rms = record
@@ -345,8 +376,14 @@ class AudioEngine:
 
     @staticmethod
     def _as_float32(data: np.ndarray) -> np.ndarray:
-        """规整采集数据为 float32 的二维数组 (frames, channels)。"""
-        arr = np.asarray(data, dtype=np.float32)
+        """规整采集数据为 float32 的二维数组 (frames, channels)。
+
+        ⚠️ 必须强制拷贝 (copy=True)：底层采集库（soundcard/WASAPI）极可能复用同一
+        环形缓冲区循环覆写。若仅取视图，AudioTick 在异步总线中排队期间，采集线程的
+        下一次 record() 会就地覆写该内存，导致下游读到被污染的脏数据。8KB 量级的
+        拷贝开销对内存带宽微不足道，换取数据所有权的彻底隔离。
+        """
+        arr = np.array(data, dtype=np.float32, copy=True)
         if arr.ndim == 1:
             arr = arr.reshape(-1, 1)
         return arr
