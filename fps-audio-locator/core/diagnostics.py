@@ -38,9 +38,8 @@ def generate_diagnostics(
     out_dir = config.paths.diagnostics_dir / sample_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    channels_audio, sr = load_analysis_audio(audio_path, config)
-    left, right = channels_audio[0], channels_audio[1]
-    mono = np.mean(channels_audio, axis=0)
+    binaural_stereo, mono, sr = load_analysis_audio(audio_path, config)
+    left, right = binaural_stereo[0], binaural_stereo[1]
     features = extract_audio_features(audio_path, config)
 
     paths: list[Path] = []

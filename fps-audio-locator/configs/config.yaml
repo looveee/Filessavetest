@@ -44,27 +44,51 @@ features:
   n_mfcc: 40
   fmin: 20
   fmax: 16000
-  normalize: true          # peak-normalize each channel before analysis
+  # Amplitude normalization mode:
+  #   none             - raw resampled signal
+  #   global_peak      - scale BOTH channels by the shared peak (preserves the
+  #                      L/R level ratio; ILD-safe). DEFAULT.
+  #   per_channel_peak - normalize each channel separately. This DESTROYS ILD,
+  #                      so ITD/ILD are never computed on a per-channel signal
+  #                      (they fall back to global_peak). Only affects the mono
+  #                      spectral path if selected.
+  normalize_mode: global_peak
   itd_max_lag_ms: 2.0      # max inter-channel lag searched for the ITD estimate
 
 labels:
   # Documentation-only note about how positions are expressed.
   coordinate_system: left_handed_z_up_game_units
   allowed_maps:
+    - delta_force_test
+    - custom_lab
     - de_dust2
     - de_mirage
     - de_inferno
   allowed_sound_types:
-    - footstep
-    - gunshot
+    - footstep_walk
+    - footstep_run
+    - crouch_walk
+    - crawl
     - reload
-    - grenade
+    - heal
+    - door_open
+    - door_close
     - jump
-    - door
+    - vault
+    - gunshot
+    - unknown
   # Axis-aligned bounding box per map (game units). Used as a sanity check so
   # obviously-wrong positions are rejected at import time. Maps without an
   # entry here skip the bounds check.
   map_bounds:
+    # delta_force_test / custom_lab use generous bounds; tighten once the real
+    # map extents are known. Maps without an entry skip the bounds check.
+    delta_force_test:
+      min: [-100000.0, -100000.0, -100000.0]
+      max: [100000.0, 100000.0, 100000.0]
+    custom_lab:
+      min: [-100000.0, -100000.0, -100000.0]
+      max: [100000.0, 100000.0, 100000.0]
     de_dust2:
       min: [-2500.0, -2500.0, -500.0]
       max: [2500.0, 2500.0, 500.0]

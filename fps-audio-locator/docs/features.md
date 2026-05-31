@@ -11,13 +11,21 @@ for a machine.** No model is trained here.
 
 ```
 stereo file ─► load (soundfile, 2ch) ─► resample to features.sample_rate
-            ─► peak-normalize per channel (if features.normalize)
-            ─► mono = mean(L, R)            (for monaural descriptors)
-            ─► L, R                          (for binaural cues)
+            ─► binaural-safe stereo (none | global_peak)  ─► L, R  (ITD/ILD/diff)
+            ─► mono = mean(L_raw, R_raw), optionally peak-normalized ─► spectral
 ```
 
 A non-stereo file raises `FeatureExtractionError` — binaural cues (ITD/ILD) are
 undefined for mono, so we fail loudly rather than degrade silently.
+
+> ⚠️ **ILD is sensitive to normalization.** Normalizing the left and right
+> channels *independently* (`per_channel_peak`) forces both to full scale and so
+> **erases the inter-channel level difference** — ILD collapses to ~0 dB. The
+> binaural cues therefore **never** use a per-channel-normalized signal: they use
+> the raw resampled stereo or a `global_peak` (common-gain) version, which scales
+> both channels by the same factor and preserves the L/R ratio. If
+> `normalize_mode` is set to `per_channel_peak`, ITD/ILD silently fall back to
+> `global_peak`; only the monaural spectral path uses the per-channel signal.
 
 ## Configuration (`features:` in `config.yaml`)
 
@@ -29,8 +37,16 @@ undefined for mono, so we fail loudly rather than degrade silently.
 | `n_mels` | 128 | Mel band count. |
 | `n_mfcc` | 40 | MFCC count. |
 | `fmin` / `fmax` | 20 / 16000 | Mel frequency range (Hz). |
-| `normalize` | true | Peak-normalize each channel before analysis. |
+| `normalize_mode` | `global_peak` | Amplitude normalization (see below). |
 | `itd_max_lag_ms` | 2.0 | Max inter-channel lag searched for ITD. |
+
+### `normalize_mode`
+
+| Mode | Effect | ILD-safe? |
+|------|--------|-----------|
+| `none` | Use the raw resampled signal. | ✅ |
+| `global_peak` (default) | Divide **both** channels by their shared peak. Preserves the L/R ratio. | ✅ |
+| `per_channel_peak` | Normalize each channel independently. **Destroys ILD.** | ❌ (never used for ITD/ILD) |
 
 ## Output keys
 
@@ -79,6 +95,20 @@ Together ITD + ILD give the left/right bearing of the source relative to the
 listener's facing direction. Combined with the listener pose stored in the
 label, this is the raw directional signal later phases will learn to map onto a
 position in the map's point library.
+
+### Capture guidance (important for ILD)
+
+ILD is only meaningful if amplitude is consistent across captures. For
+spatial-localization training:
+
+- **Keep the system volume, in-game volume and sound-card / interface gain
+  fixed** across the whole collection session. Changing any of them rescales a
+  channel and corrupts ILD comparisons between samples.
+- **Do not normalize the left and right channels separately** at any point in
+  your capture/export chain. If you must normalize, use a common (global) gain
+  so the L/R ratio is preserved (this is exactly what `normalize_mode:
+  global_peak` does internally).
+- Prefer a single, calibrated capture path so absolute levels are comparable.
 
 ## Storage format
 

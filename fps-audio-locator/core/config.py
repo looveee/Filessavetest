@@ -83,7 +83,14 @@ class FeaturesConfig(_Strict):
     n_mfcc: int = Field(gt=0)
     fmin: float = Field(ge=0)
     fmax: float = Field(gt=0)
-    normalize: bool = True
+    # How to normalize amplitude before analysis:
+    #   none              -> no normalization (raw resampled signal)
+    #   global_peak       -> divide BOTH channels by the shared peak (default);
+    #                        preserves the inter-channel level ratio -> ILD safe
+    #   per_channel_peak  -> normalize each channel independently; DESTROYS the
+    #                        inter-channel level difference. NEVER used for
+    #                        ITD/ILD (binaural cues fall back to global_peak).
+    normalize_mode: Literal["none", "global_peak", "per_channel_peak"] = "global_peak"
     itd_max_lag_ms: float = Field(gt=0)
 
 

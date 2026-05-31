@@ -60,10 +60,32 @@ def _load_stereo(audio_path: str | Path) -> tuple[np.ndarray, int]:
 
 
 def _peak_normalize(y: np.ndarray) -> np.ndarray:
+    """Peak-normalize a 1-D signal to [-1, 1]."""
     peak = float(np.max(np.abs(y))) if y.size else 0.0
     if peak > _EPS:
         return y / peak
     return y
+
+
+def _normalize_stereo(stereo: np.ndarray, mode: str) -> np.ndarray:
+    """Normalize a (2, frames) stereo signal according to ``mode``.
+
+    * ``none``             -> unchanged.
+    * ``global_peak``      -> divide BOTH channels by their shared peak. This is
+      a common gain, so the inter-channel level ratio (and thus ILD) is
+      preserved.
+    * ``per_channel_peak`` -> normalize each channel independently. This makes
+      both channels reach full scale and therefore *destroys* the level
+      difference between them. It must never be used for ITD/ILD.
+    """
+    if mode == "none":
+        return stereo
+    if mode == "global_peak":
+        peak = float(np.max(np.abs(stereo))) if stereo.size else 0.0
+        return stereo / peak if peak > _EPS else stereo
+    if mode == "per_channel_peak":
+        return np.stack([_peak_normalize(ch) for ch in stereo])
+    raise FeatureExtractionError(f"Unknown normalize_mode: {mode!r}")
 
 
 def _estimate_itd_ms(left: np.ndarray, right: np.ndarray, sr: int, max_lag_ms: float) -> float:
@@ -108,13 +130,26 @@ def _spectral_flux(mono: np.ndarray, n_fft: int, hop_length: int) -> np.ndarray:
     return np.concatenate([[0.0], flux]).astype(np.float32)
 
 
-def load_analysis_audio(audio_path: str | Path, config: AppConfig) -> tuple[np.ndarray, int]:
-    """Load a stereo file as analysis-ready audio: resampled and normalized.
+def load_analysis_audio(
+    audio_path: str | Path, config: AppConfig
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Load a stereo file as analysis-ready audio.
 
-    Returns a ``(2, frames)`` float32 array and the analysis sample rate. This
-    is the single place where the raw capture is turned into the signal that
-    both feature extraction and diagnostic plotting operate on, so the two never
-    diverge.
+    Returns ``(binaural_stereo, mono, sr)`` where:
+
+    * ``binaural_stereo`` -- ``(2, frames)`` float32 used for the binaural cues
+      (ITD / ILD / stereo difference). It is normalized with a **binaural-safe**
+      mode only: ``none`` or ``global_peak``. If ``normalize_mode`` is
+      ``per_channel_peak`` it is downgraded to ``global_peak`` here, because
+      per-channel normalization destroys the inter-channel level ratio.
+    * ``mono`` -- ``(frames,)`` float32 channel mean used for the monaural
+      spectral features. It may be peak-normalized (scale-invariant features are
+      unaffected; RMS reflects the chosen mode).
+    * ``sr`` -- the analysis sample rate.
+
+    This is the single place where the raw capture is turned into the signals
+    that both feature extraction and diagnostic plotting operate on, so the two
+    never diverge.
 
     Raises:
         FeatureExtractionError: if the audio is not 2-channel.
@@ -138,11 +173,24 @@ def load_analysis_audio(audio_path: str | Path, config: AppConfig) -> tuple[np.n
                 for ch in channels_audio
             ]
         )
+    sr = fcfg.sample_rate
 
-    if fcfg.normalize:
-        channels_audio = np.stack([_peak_normalize(ch) for ch in channels_audio])
+    # Binaural cues must never see a per-channel-normalized signal: that would
+    # flatten ILD to ~0. Downgrade per_channel_peak -> global_peak here.
+    binaural_mode = (
+        "global_peak"
+        if fcfg.normalize_mode == "per_channel_peak"
+        else fcfg.normalize_mode
+    )
+    binaural_stereo = _normalize_stereo(channels_audio, binaural_mode).astype(np.float32)
 
-    return channels_audio.astype(np.float32), fcfg.sample_rate
+    # Mono path for spectral features: normalization is fine here.
+    mono = np.mean(channels_audio, axis=0)
+    if fcfg.normalize_mode != "none":
+        mono = _peak_normalize(mono)
+    mono = mono.astype(np.float32)
+
+    return binaural_stereo, mono, sr
 
 
 def extract_audio_features(audio_path: str | Path, config: AppConfig) -> dict:
@@ -162,11 +210,11 @@ def extract_audio_features(audio_path: str | Path, config: AppConfig) -> dict:
             degradation of binaural cues) or cannot be read.
     """
     fcfg: FeaturesConfig = config.features
-    channels_audio, sr = load_analysis_audio(audio_path, config)
-    n_channels = channels_audio.shape[0]
+    binaural_stereo, mono, sr = load_analysis_audio(audio_path, config)
+    n_channels = binaural_stereo.shape[0]
 
-    left, right = channels_audio[0], channels_audio[1]
-    mono = np.mean(channels_audio, axis=0).astype(np.float32)
+    # Binaural cues come from the binaural-safe stereo (ILD-preserving).
+    left, right = binaural_stereo[0], binaural_stereo[1]
     duration_sec = float(mono.shape[0]) / sr
 
     # --- monaural spectral descriptors ---------------------------------

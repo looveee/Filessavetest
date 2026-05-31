@@ -18,7 +18,7 @@ from core.config import AppConfig, load_config
 
 # A fully valid label dict, used as a baseline that tests mutate.
 VALID_LABEL: dict = {
-    "schema_version": "1.0",
+    "schema_version": "1.1",
     "map_id": "de_dust2",
     "capture_origin": "selfhost",
     "listener": {
@@ -29,7 +29,7 @@ VALID_LABEL: dict = {
     },
     "source": {
         "position": {"x": 980.0, "y": 540.0, "z": 64.0},
-        "sound_type": "footstep",
+        "sound_type": "footstep_run",
         "source_id": "enemy_3",
     },
     "weapon": None,
@@ -127,13 +127,14 @@ features:
   n_mfcc: 40
   fmin: 20
   fmax: 16000
-  normalize: true
+  normalize_mode: global_peak
   itd_max_lag_ms: 2.0
 
 labels:
   coordinate_system: left_handed_z_up_game_units
-  allowed_maps: [de_dust2, de_mirage, de_inferno]
-  allowed_sound_types: [footstep, gunshot, reload, grenade, jump, door]
+  allowed_maps: [delta_force_test, custom_lab, de_dust2, de_mirage, de_inferno]
+  allowed_sound_types: [footstep_walk, footstep_run, crouch_walk, crawl, reload,
+                        heal, door_open, door_close, jump, vault, gunshot, unknown]
   map_bounds:
     de_dust2:
       min: [-2500.0, -2500.0, -500.0]

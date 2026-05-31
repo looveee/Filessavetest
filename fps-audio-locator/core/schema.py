@@ -20,7 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 class _Strict(BaseModel):
@@ -75,6 +75,19 @@ class SampleLabel(_Strict):
     weapon: str | None = None
     game_build: str | None = None
     notes: str | None = None
+
+    # --- training-oriented fields (optional now, recommended for modeling) ---
+    # These are not required to import a sample, but filling them in makes the
+    # dataset far more useful for Phase 3 training. See docs/data_schema.md.
+    listener_point_id: str | None = None  # id of the listener's map point
+    source_point_id: str | None = None    # id of the source's map point
+    action: str | None = None             # e.g. footstep_run, reload, vault
+    material: str | None = None           # surface material under the source
+    floor_relation: str | None = None     # same/above/below listener floor
+    distance_m: float | None = None       # listener<->source distance (meters)
+    occlusion: str | None = None          # none/partial/full wall occlusion
+    area_id: str | None = None            # named map area/callout of the source
+
     # Free-form bag for collector-specific metadata that we do not model yet.
     extra: dict[str, Any] = Field(default_factory=dict)
 

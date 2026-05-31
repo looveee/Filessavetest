@@ -15,7 +15,7 @@ def test_import_creates_manifest_entry(config, make_wav, write_label, valid_labe
     label = write_label(valid_label_dict)
     record = import_sample(wav, label, config)
 
-    assert record.sample_id.startswith("de_dust2_footstep_")
+    assert record.sample_id.startswith("de_dust2_footstep_run_")
     # Manifest has exactly one entry.
     store = ManifestStore(config.paths.manifest_path)
     assert store.count() == 1
@@ -31,7 +31,7 @@ def test_sample_id_is_deterministic(valid_label_dict):
 
     label = SampleLabel.model_validate(valid_label_dict)
     sha = "abcd1234" + "0" * 56
-    assert make_sample_id(label, sha) == "de_dust2_footstep_abcd1234"
+    assert make_sample_id(label, sha) == "de_dust2_footstep_run_abcd1234"
 
 
 def test_invalid_label_blocks_import(config, make_wav, write_label, valid_label_dict):

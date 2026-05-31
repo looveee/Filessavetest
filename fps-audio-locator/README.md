@@ -63,9 +63,17 @@ A minimal label:
   "map_id": "de_dust2",
   "capture_origin": "selfhost",
   "listener": { "position": { "x": 250, "y": -120, "z": 64 }, "yaw": 90 },
-  "source":   { "position": { "x": 980, "y": 540, "z": 64 }, "sound_type": "footstep" }
+  "source":   { "position": { "x": 980, "y": 540, "z": 64 }, "sound_type": "footstep_run" }
 }
 ```
+
+> 💡 **Recommended for training.** The schema also accepts optional
+> training-oriented fields — `listener_point_id`, `source_point_id`, `action`,
+> `material`, `floor_relation`, `distance_m`, `occlusion`, `area_id`. They are
+> not required to import, but you should fill them in during collection: they are
+> the labels Phase 3 will train/evaluate against, and backfilling later is
+> painful. See [`docs/sample_label.example.json`](docs/sample_label.example.json)
+> and [`docs/data_schema.md`](docs/data_schema.md).
 
 Then import it:
 

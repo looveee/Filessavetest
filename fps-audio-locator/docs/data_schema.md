@@ -21,7 +21,7 @@ The JSON file passed to `--label`. Unknown fields are **rejected**.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `schema_version` | string | no (default `"1.0"`) | Schema version. |
+| `schema_version` | string | no (default `"1.1"`) | Schema version. |
 | `map_id` | string | yes | Must be in `labels.allowed_maps`. |
 | `capture_origin` | string | yes | Must be in `project.usage_scope` (compliance). |
 | `listener` | `ListenerPose` | yes | Where the local player is/faces. |
@@ -30,6 +30,23 @@ The JSON file passed to `--label`. Unknown fields are **rejected**.
 | `game_build` | string\|null | no | Game build/version string. |
 | `notes` | string\|null | no | Free text. |
 | `extra` | object | no | Collector-specific metadata bag. |
+
+#### Training-oriented fields (optional now, recommended)
+
+These fields are **optional** — a sample imports fine without them — but you are
+**strongly encouraged to fill them in** during collection. They are the labels
+Phase 3 will train and evaluate against; backfilling them later is painful.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `listener_point_id` | string\|null | Id of the listener's point in the map point library. |
+| `source_point_id` | string\|null | Id of the source's point in the map point library. |
+| `action` | string\|null | Fine-grained action, e.g. `footstep_run`, `reload`, `vault`. |
+| `material` | string\|null | Surface material under the source (e.g. `wood`, `metal`). |
+| `floor_relation` | string\|null | Source floor vs listener: `same` / `above` / `below`. |
+| `distance_m` | float\|null | Listener↔source distance in meters. |
+| `occlusion` | string\|null | Wall occlusion: `none` / `partial` / `full`. |
+| `area_id` | string\|null | Named map area / callout of the source (e.g. `long_a`). |
 
 ### `ListenerPose`
 

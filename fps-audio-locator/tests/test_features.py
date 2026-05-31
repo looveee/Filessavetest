@@ -26,6 +26,22 @@ def _write_delayed_stereo(path, *, sr=48000, dur=1.0, delay_samples=24, freq=440
     sf.write(str(path), np.stack([left, right], axis=1).astype("float32"), sr)
 
 
+def _write_louder_left_stereo(path, *, sr=48000, dur=1.0, freq=440.0,
+                              left_amp=0.6, right_amp=0.15):
+    """Stereo with the left channel clearly louder than the right, no delay.
+
+    Pure level difference: ITD ~= 0, and ILD should be strongly positive
+    (10*log10(left_amp^2 / right_amp^2)). With left_amp=0.6, right_amp=0.15 the
+    expected ILD is ~12 dB.
+    """
+    n = int(sr * dur)
+    t = np.arange(n) / sr
+    tone = np.sin(2 * np.pi * freq * t)
+    left = left_amp * tone
+    right = right_amp * tone
+    sf.write(str(path), np.stack([left, right], axis=1).astype("float32"), sr)
+
+
 def test_mono_audio_is_rejected(make_wav, config):
     mono = make_wav(channels=1)
     with pytest.raises(FeatureExtractionError, match="Stereo"):
@@ -74,6 +90,68 @@ def test_identical_channels_give_near_zero_cues(make_wav, config):
     feats = extract_audio_features(make_wav(channels=2), config)
     assert abs(feats["itd_estimate_ms"]) < 1e-6
     assert abs(feats["ild_db"]) < 1e-3
+
+
+def test_ild_positive_for_louder_left(tmp_path, config):
+    # Regression guard for the ILD bug: per-channel peak normalization used to
+    # flatten this to ~0 dB. With the global_peak default the level difference
+    # must survive.
+    wav = tmp_path / "louder_left.wav"
+    _write_louder_left_stereo(wav, sr=config.features.sample_rate,
+                              left_amp=0.6, right_amp=0.15)
+    feats = extract_audio_features(wav, config)
+    # Expected ~ 10*log10(0.6^2 / 0.15^2) = ~12 dB.
+    assert feats["ild_db"] > 6.0, feats["ild_db"]
+    assert abs(feats["ild_db"]) > 1.0  # explicitly NOT near zero
+    # No delay -> ITD should be ~0.
+    assert abs(feats["itd_estimate_ms"]) < 0.05
+
+
+def test_ild_preserved_even_when_mode_is_per_channel_peak(tmp_path, config):
+    # Even if the operator selects per_channel_peak, binaural cues must fall
+    # back to a binaural-safe signal so ILD is not destroyed.
+    config.features.normalize_mode = "per_channel_peak"
+    wav = tmp_path / "louder_left.wav"
+    _write_louder_left_stereo(wav, sr=config.features.sample_rate,
+                              left_amp=0.6, right_amp=0.15)
+    feats = extract_audio_features(wav, config)
+    assert feats["ild_db"] > 6.0, feats["ild_db"]
+
+
+def test_ild_consistent_across_global_and_none_modes(tmp_path, config):
+    # ITD/ILD are gain-invariant, so none vs global_peak must give the same cue.
+    wav = tmp_path / "louder_left.wav"
+    _write_louder_left_stereo(wav, sr=config.features.sample_rate)
+
+    config.features.normalize_mode = "none"
+    none_feats = extract_audio_features(wav, config)
+    config.features.normalize_mode = "global_peak"
+    global_feats = extract_audio_features(wav, config)
+
+    assert none_feats["ild_db"] == pytest.approx(global_feats["ild_db"], abs=1e-4)
+    assert none_feats["itd_estimate_ms"] == pytest.approx(
+        global_feats["itd_estimate_ms"], abs=1e-6
+    )
+
+
+def test_per_channel_peak_helper_flattens_ild():
+    # Documents *why* per_channel_peak is forbidden for binaural cues: it makes
+    # both channels full-scale and so erases the level difference.
+    from core.features import _ild_db, _normalize_stereo
+
+    left = 0.6 * np.ones(1000, dtype=np.float32)
+    right = 0.15 * np.ones(1000, dtype=np.float32)
+    stereo = np.stack([left, right])
+
+    raw_ild = _ild_db(stereo[0], stereo[1])
+    per_ch = _normalize_stereo(stereo, "per_channel_peak")
+    flattened_ild = _ild_db(per_ch[0], per_ch[1])
+    glob = _normalize_stereo(stereo, "global_peak")
+    global_ild = _ild_db(glob[0], glob[1])
+
+    assert raw_ild > 6.0
+    assert abs(flattened_ild) < 1e-6          # destroyed
+    assert global_ild == pytest.approx(raw_ild, abs=1e-4)  # preserved
 
 
 def test_save_and_load_roundtrip(make_wav, config):
