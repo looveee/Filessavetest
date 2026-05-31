@@ -108,6 +108,8 @@ paths:
   audio_dir: data/raw
   label_dir: data/labels
   manifest_path: data/manifest/manifest.jsonl
+  features_dir: data/features
+  diagnostics_dir: data/diagnostics
 
 audio:
   required_channels: 2
@@ -116,6 +118,17 @@ audio:
   min_duration_s: 0.1
   max_duration_s: 30.0
   allowed_formats: [wav, flac]
+
+features:
+  sample_rate: 48000
+  n_fft: 2048
+  hop_length: 512
+  n_mels: 128
+  n_mfcc: 40
+  fmin: 20
+  fmax: 16000
+  normalize: true
+  itd_max_lag_ms: 2.0
 
 labels:
   coordinate_system: left_handed_z_up_game_units

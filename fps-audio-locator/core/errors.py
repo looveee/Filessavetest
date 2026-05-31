@@ -42,3 +42,7 @@ class DuplicateSampleError(LocatorError):
 
 class ManifestError(LocatorError):
     """Raised when the manifest cannot be read or written."""
+
+
+class FeatureExtractionError(LocatorError):
+    """Raised when audio features cannot be extracted (e.g. wrong channel count)."""

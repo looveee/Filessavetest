@@ -9,21 +9,23 @@ description = "FPS spatial-audio source-localization data backbone (offline / R&
 requires-python = ">=3.11"
 readme = "README.md"
 
-# Phase 1 (data engineering base) dependencies only.
+# Phase 1 (data base) + Phase 2 (feature extraction + diagnostics) runtime deps.
 dependencies = [
     "pydantic>=2.5",
     "pyyaml>=6.0",
     "numpy>=1.26",
     "pandas>=2.0",
     "soundfile>=0.12",
+    "librosa>=0.10",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
-# Reserved for later phases — not required to run Phase 1.
+# Reserved for later phases — not required to run Phase 1/2.
 ml = [
     "torch>=2.2",
     "torchaudio>=2.2",
-    "librosa>=0.10",
 ]
 api = [
     "fastapi>=0.110",

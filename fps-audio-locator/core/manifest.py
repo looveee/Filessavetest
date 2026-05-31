@@ -71,6 +71,12 @@ class ManifestStore:
     def contains_sample_id(self, sample_id: str) -> bool:
         return any(r.sample_id == sample_id for r in self.iter_records())
 
+    def get(self, sample_id: str) -> SampleRecord | None:
+        for r in self.iter_records():
+            if r.sample_id == sample_id:
+                return r
+        return None
+
     def find_by_checksum(self, sha256: str) -> SampleRecord | None:
         for r in self.iter_records():
             if r.audio.sha256 == sha256:

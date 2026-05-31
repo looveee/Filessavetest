@@ -1,9 +1,12 @@
-# Phase 1 (data engineering base) runtime + test dependencies.
-# Later phases add torch/torchaudio/librosa (extras: [ml]) and
-# fastapi/streamlit (extras: [api]) — see pyproject.toml.
+# Phase 1 (data base) + Phase 2 (features/diagnostics) runtime + test deps.
+# Later phases add torch/torchaudio (extras: [ml]) and fastapi/streamlit
+# (extras: [api]) — see pyproject.toml.
 pydantic>=2.5
 pyyaml>=6.0
 numpy>=1.26
 pandas>=2.0
 soundfile>=0.12
+librosa>=0.10
+scipy>=1.11
+matplotlib>=3.7
 pytest>=8.0

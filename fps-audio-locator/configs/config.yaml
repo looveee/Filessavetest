@@ -23,6 +23,8 @@ paths:
   audio_dir: data/raw          # imported audio is stored here as <sample_id>.<fmt>
   label_dir: data/labels       # archived copies of the original label JSONs
   manifest_path: data/manifest/manifest.jsonl
+  features_dir: data/features      # extracted features as <sample_id>.npz
+  diagnostics_dir: data/diagnostics  # per-sample diagnostic plots
 
 audio:
   required_channels: 2         # 双声道 / stereo is mandatory
@@ -31,6 +33,19 @@ audio:
   min_duration_s: 0.1
   max_duration_s: 30.0
   allowed_formats: [wav, flac]
+
+features:
+  # Phase 2 feature-extraction parameters. Audio is resampled to sample_rate
+  # before any analysis so features are comparable across captures.
+  sample_rate: 48000
+  n_fft: 2048
+  hop_length: 512
+  n_mels: 128
+  n_mfcc: 40
+  fmin: 20
+  fmax: 16000
+  normalize: true          # peak-normalize each channel before analysis
+  itd_max_lag_ms: 2.0      # max inter-channel lag searched for the ITD estimate
 
 labels:
   # Documentation-only note about how positions are expressed.

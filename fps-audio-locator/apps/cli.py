@@ -17,7 +17,9 @@ import sys
 from pathlib import Path
 
 from core.config import load_config
-from core.errors import LabelValidationError, LocatorError
+from core.diagnostics import generate_diagnostics
+from core.errors import FeatureExtractionError, LabelValidationError, LocatorError
+from core.feature_pipeline import audio_abs_path, extract_all, extract_and_store
 from core.importer import import_sample
 from core.labels import check_label, load_label
 from core.manifest import ManifestStore
@@ -61,6 +63,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats = sub.add_parser("stats", help="Show manifest summary statistics.")
     _add_config_arg(p_stats)
     p_stats.set_defaults(func=_cmd_stats)
+
+    p_feat = sub.add_parser(
+        "extract-features",
+        help="Extract audio features to data/features/<sample_id>.npz.",
+    )
+    feat_group = p_feat.add_mutually_exclusive_group(required=True)
+    feat_group.add_argument("--sample-id", help="Extract features for one sample.")
+    feat_group.add_argument(
+        "--all", action="store_true", help="Extract features for every sample."
+    )
+    _add_config_arg(p_feat)
+    p_feat.set_defaults(func=_cmd_extract_features)
+
+    p_plot = sub.add_parser(
+        "plot-audio",
+        help="Render diagnostic PNGs to data/diagnostics/<sample_id>/.",
+    )
+    p_plot.add_argument("--sample-id", required=True, help="Sample to plot.")
+    _add_config_arg(p_plot)
+    p_plot.set_defaults(func=_cmd_plot_audio)
 
     return parser
 
@@ -127,6 +149,39 @@ def _cmd_stats(args: argparse.Namespace) -> int:
         print("by sound_type:")
         for k, v in sorted(by_sound.items()):
             print(f"  {k}: {v}")
+    return 0
+
+
+def _cmd_extract_features(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    if args.all:
+        results = extract_all(config)
+        if not results:
+            print("(manifest is empty — nothing to extract)")
+            return 0
+        for sample_id, npz in results:
+            print(f"Extracted {sample_id} -> {npz}")
+        print(f"Done: {len(results)} sample(s).")
+        return 0
+    npz = extract_and_store(args.sample_id, config)
+    print(f"Extracted {args.sample_id} -> {npz}")
+    return 0
+
+
+def _cmd_plot_audio(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    store = ManifestStore(config.paths.manifest_path)
+    record = store.get(args.sample_id)
+    if record is None:
+        raise FeatureExtractionError(
+            f"sample_id {args.sample_id!r} not found in manifest "
+            f"{config.paths.manifest_path}"
+        )
+    audio_path = audio_abs_path(record, config)
+    paths = generate_diagnostics(args.sample_id, audio_path, config)
+    print(f"Wrote {len(paths)} plot(s) to {config.paths.diagnostics_dir / args.sample_id}:")
+    for p in paths:
+        print(f"  {p.name}")
     return 0
 
 

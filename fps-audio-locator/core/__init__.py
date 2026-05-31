@@ -9,6 +9,7 @@ submodules.
 from core.config import (
     AppConfig,
     AudioConfig,
+    FeaturesConfig,
     ImportConfig,
     LabelsConfig,
     PathsConfig,
@@ -19,10 +20,17 @@ from core.errors import (
     AudioImportError,
     ConfigError,
     DuplicateSampleError,
+    FeatureExtractionError,
     LabelValidationError,
     LocatorError,
     ManifestError,
     SchemaValidationError,
+)
+from core.features import FEATURE_KEYS, extract_audio_features
+from core.feature_store import (
+    feature_path,
+    load_features,
+    save_features,
 )
 from core.importer import import_sample
 from core.manifest import ManifestStore
@@ -38,11 +46,17 @@ from core.schema import (
 __all__ = [
     "AppConfig",
     "AudioConfig",
+    "FeaturesConfig",
     "ImportConfig",
     "LabelsConfig",
     "PathsConfig",
     "ProjectConfig",
     "load_config",
+    "FEATURE_KEYS",
+    "extract_audio_features",
+    "feature_path",
+    "load_features",
+    "save_features",
     "LocatorError",
     "ConfigError",
     "SchemaValidationError",
@@ -50,6 +64,7 @@ __all__ = [
     "AudioImportError",
     "DuplicateSampleError",
     "ManifestError",
+    "FeatureExtractionError",
     "import_sample",
     "ManifestStore",
     "AudioMeta",

@@ -39,6 +39,8 @@ class PathsConfig(_Strict):
     audio_dir: Path
     label_dir: Path
     manifest_path: Path
+    features_dir: Path
+    diagnostics_dir: Path
 
     def resolve(self, base_dir: Path) -> "PathsConfig":
         """Return a copy with every relative path anchored at ``base_dir``."""
@@ -52,6 +54,8 @@ class PathsConfig(_Strict):
             audio_dir=anchor(self.audio_dir),
             label_dir=anchor(self.label_dir),
             manifest_path=anchor(self.manifest_path),
+            features_dir=anchor(self.features_dir),
+            diagnostics_dir=anchor(self.diagnostics_dir),
         )
 
 
@@ -67,6 +71,20 @@ class AudioConfig(_Strict):
     @classmethod
     def _normalize_formats(cls, v: list[str]) -> list[str]:
         return [fmt.lower().lstrip(".") for fmt in v]
+
+
+class FeaturesConfig(_Strict):
+    """STFT / mel / MFCC parameters and ITD search window for Phase 2."""
+
+    sample_rate: int = Field(gt=0)
+    n_fft: int = Field(gt=0)
+    hop_length: int = Field(gt=0)
+    n_mels: int = Field(gt=0)
+    n_mfcc: int = Field(gt=0)
+    fmin: float = Field(ge=0)
+    fmax: float = Field(gt=0)
+    normalize: bool = True
+    itd_max_lag_ms: float = Field(gt=0)
 
 
 class BoundingBox(_Strict):
@@ -97,6 +115,7 @@ class AppConfig(_Strict):
     project: ProjectConfig
     paths: PathsConfig
     audio: AudioConfig
+    features: FeaturesConfig
     labels: LabelsConfig
     # ``import`` is a Python keyword, so the YAML key is mapped via an alias.
     import_: ImportConfig = Field(alias="import")
