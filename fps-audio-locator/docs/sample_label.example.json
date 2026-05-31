@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "map_id": "de_dust2",
+  "capture_origin": "selfhost",
+  "listener": {
+    "position": { "x": 250.0, "y": -120.0, "z": 64.0 },
+    "yaw": 90.0,
+    "pitch": 0.0,
+    "roll": 0.0
+  },
+  "source": {
+    "position": { "x": 980.0, "y": 540.0, "z": 64.0 },
+    "sound_type": "footstep",
+    "source_id": "enemy_3"
+  },
+  "weapon": null,
+  "game_build": "cs2-1.40.1.0",
+  "notes": "Enemy crossing long doors, listener at CT spawn.",
+  "extra": {
+    "tickrate": 64,
+    "recorded_by": "collector-01"
+  }
+}

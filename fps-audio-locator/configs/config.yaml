@@ -1,0 +1,65 @@
+# =============================================================================
+# FPS Spatial-Audio Source-Localization — unified configuration (Phase 1)
+#
+# This is the single source of truth for the data backbone. Relative paths are
+# resolved against the project root (the directory that contains this configs/
+# folder) at load time.
+# =============================================================================
+
+project:
+  name: fps-audio-locator
+  version: 0.1.0
+  # Compliance boundary. capture_origin in every label MUST be one of these.
+  # This system is ONLY for self-hosted rooms, training rooms, offline replays
+  # and R&D validation. It is never used for live matchmaking.
+  usage_scope:
+    - selfhost     # 自建房
+    - training     # 训练房
+    - replay       # 离线录像
+    - research     # 研发验证
+
+paths:
+  data_root: data
+  audio_dir: data/raw          # imported audio is stored here as <sample_id>.<fmt>
+  label_dir: data/labels       # archived copies of the original label JSONs
+  manifest_path: data/manifest/manifest.jsonl
+
+audio:
+  required_channels: 2         # 双声道 / stereo is mandatory
+  allowed_sample_rates: [44100, 48000]
+  resample_target: 48000       # reserved for Phase 2 feature extraction
+  min_duration_s: 0.1
+  max_duration_s: 30.0
+  allowed_formats: [wav, flac]
+
+labels:
+  # Documentation-only note about how positions are expressed.
+  coordinate_system: left_handed_z_up_game_units
+  allowed_maps:
+    - de_dust2
+    - de_mirage
+    - de_inferno
+  allowed_sound_types:
+    - footstep
+    - gunshot
+    - reload
+    - grenade
+    - jump
+    - door
+  # Axis-aligned bounding box per map (game units). Used as a sanity check so
+  # obviously-wrong positions are rejected at import time. Maps without an
+  # entry here skip the bounds check.
+  map_bounds:
+    de_dust2:
+      min: [-2500.0, -2500.0, -500.0]
+      max: [2500.0, 2500.0, 500.0]
+    de_mirage:
+      min: [-3000.0, -3000.0, -500.0]
+      max: [3000.0, 3000.0, 500.0]
+    de_inferno:
+      min: [-2800.0, -2800.0, -500.0]
+      max: [2800.0, 2800.0, 500.0]
+
+import:
+  copy_audio: true             # copy audio into audio_dir; false = reference in place
+  on_duplicate: error          # error | skip | overwrite (matched by audio sha256)
