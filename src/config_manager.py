@@ -57,8 +57,10 @@ class AudioConfig:
     sample_rate: int = 48000        # 采样率 (Hz)
     channels: int = 2               # 声道数
     chunk_size: int = 1024          # 缓冲区块大小（帧）
-    energy_threshold: float = 0.015  # 静音能量阈值
-    vad_threshold: float = 0.6      # 活动检测置信度阈值
+    energy_threshold: float = 0.015  # VAD 触发的 RMS 能量阈值
+    vad_threshold: float = 0.6      # 活动检测置信度阈值（预留给后续模型 VAD）
+    vad_start_chunks: int = 3       # 连续多少个高能量 chunk 判定"声音事件开始"
+    vad_silence_duration_ms: float = 300.0  # 能量回落后持续多久静音判定"事件结束"(毫秒)
 
 
 @dataclass
