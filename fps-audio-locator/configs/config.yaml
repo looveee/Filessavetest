@@ -1,0 +1,104 @@
+# =============================================================================
+# FPS Spatial-Audio Source-Localization — unified configuration (Phase 1)
+#
+# This is the single source of truth for the data backbone. Relative paths are
+# resolved against the project root (the directory that contains this configs/
+# folder) at load time.
+# =============================================================================
+
+project:
+  name: fps-audio-locator
+  version: 0.1.0
+  # Compliance boundary. capture_origin in every label MUST be one of these.
+  # This system is ONLY for self-hosted rooms, training rooms, offline replays
+  # and R&D validation. It is never used for live matchmaking.
+  usage_scope:
+    - selfhost     # 自建房
+    - training     # 训练房
+    - replay       # 离线录像
+    - research     # 研发验证
+
+paths:
+  data_root: data
+  audio_dir: data/raw          # imported audio is stored here as <sample_id>.<fmt>
+  label_dir: data/labels       # archived copies of the original label JSONs
+  manifest_path: data/manifest/manifest.jsonl
+  features_dir: data/features      # extracted features as <sample_id>.npz
+  diagnostics_dir: data/diagnostics  # per-sample diagnostic plots
+
+audio:
+  required_channels: 2         # 双声道 / stereo is mandatory
+  allowed_sample_rates: [44100, 48000]
+  resample_target: 48000       # reserved for Phase 2 feature extraction
+  min_duration_s: 0.1
+  max_duration_s: 30.0
+  allowed_formats: [wav, flac]
+
+features:
+  # Phase 2 feature-extraction parameters. Audio is resampled to sample_rate
+  # before any analysis so features are comparable across captures.
+  sample_rate: 48000
+  n_fft: 2048
+  hop_length: 512
+  n_mels: 128
+  n_mfcc: 40
+  fmin: 20
+  fmax: 16000
+  # Amplitude normalization mode:
+  #   none             - raw resampled signal
+  #   global_peak      - scale BOTH channels by the shared peak (preserves the
+  #                      L/R level ratio; ILD-safe). DEFAULT.
+  #   per_channel_peak - normalize each channel separately. This DESTROYS ILD,
+  #                      so ITD/ILD are never computed on a per-channel signal
+  #                      (they fall back to global_peak). Only affects the mono
+  #                      spectral path if selected.
+  normalize_mode: global_peak
+  itd_max_lag_ms: 2.0      # max inter-channel lag searched for the ITD estimate
+
+labels:
+  # Documentation-only note about how positions are expressed.
+  coordinate_system: left_handed_z_up_game_units
+  allowed_maps:
+    - delta_force_test
+    - custom_lab
+    - de_dust2
+    - de_mirage
+    - de_inferno
+  allowed_sound_types:
+    - footstep_walk
+    - footstep_run
+    - crouch_walk
+    - crawl
+    - reload
+    - heal
+    - door_open
+    - door_close
+    - jump
+    - vault
+    - gunshot
+    - unknown
+  # Axis-aligned bounding box per map (game units). Used as a sanity check so
+  # obviously-wrong positions are rejected at import time. Maps without an
+  # entry here skip the bounds check.
+  map_bounds:
+    # delta_force_test / custom_lab use generous bounds; tighten once the real
+    # map extents are known. Maps without an entry skip the bounds check.
+    delta_force_test:
+      min: [-100000.0, -100000.0, -100000.0]
+      max: [100000.0, 100000.0, 100000.0]
+    custom_lab:
+      min: [-100000.0, -100000.0, -100000.0]
+      max: [100000.0, 100000.0, 100000.0]
+    de_dust2:
+      min: [-2500.0, -2500.0, -500.0]
+      max: [2500.0, 2500.0, 500.0]
+    de_mirage:
+      min: [-3000.0, -3000.0, -500.0]
+      max: [3000.0, 3000.0, 500.0]
+    de_inferno:
+      min: [-2800.0, -2800.0, -500.0]
+      max: [2800.0, 2800.0, 500.0]
+
+import:
+  copy_audio: true             # copy audio into audio_dir; false = reference in place
+  on_duplicate: error          # error | skip | overwrite (matched by audio sha256)

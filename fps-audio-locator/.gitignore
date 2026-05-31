@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Imported dataset artifacts — keep the directories (via .gitkeep) but never
+# commit the (potentially large / private) audio, label copies or manifest.
+data/raw/*
+data/labels/*
+data/manifest/*.jsonl
+data/features/*
+data/diagnostics/*
+!data/raw/.gitkeep
+!data/labels/.gitkeep
+!data/manifest/.gitkeep
+!data/features/.gitkeep
+!data/diagnostics/.gitkeep
