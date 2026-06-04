@@ -42,10 +42,10 @@ _LOGGER: logging.Logger = logging.getLogger("event_bus")
 class Topic(Enum):
     """事件总线的标准主题。使用 auto() 保证取值唯一，订阅/发布以枚举成员为键。"""
 
-    CV_UPDATE = auto()      # 视觉坐标更新（CVEngine 产出）
-    AUDIO_TICK = auto()     # 音频切片产生（AudioEngine 产出）
+    CV_UPDATE = auto()  # 视觉坐标更新（CVEngine 产出）
+    AUDIO_TICK = auto()  # 音频切片产生（AudioEngine 产出）
     FUSION_RESULT = auto()  # 多模态融合推导结果（FusionEngine 产出）
-    SYS_ERROR = auto()      # 系统异常 / 故障上报
+    SYS_ERROR = auto()  # 系统异常 / 故障上报
 
 
 # 订阅者回调签名：接收任意 payload，返回值被忽略。
@@ -55,6 +55,7 @@ Callback = Callable[[Any], None]
 @dataclass(frozen=True)
 class _Event:
     """内部事件信封：在队列中流转的最小单元。"""
+
     topic: Topic
     payload: Any
 
@@ -228,8 +229,8 @@ class EventBus:
             self._running = False
 
         if wait:
-            self._queue.join()      # 等待在途事件分发完成
-        self._queue.put(None)       # 投递哨兵唤醒 dispatcher 退出
+            self._queue.join()  # 等待在途事件分发完成
+        self._queue.put(None)  # 投递哨兵唤醒 dispatcher 退出
         self._dispatcher.join(timeout=5.0)
         self._executor.shutdown(wait=wait)
         _LOGGER.info("EventBus 已关闭。")

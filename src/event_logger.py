@@ -116,8 +116,12 @@ class EventLogger:
                 self._fh.close()
             except Exception:  # noqa: BLE001
                 pass
-        _LOGGER.info("EventLogger 已停止：写入 %d 行（丢弃 %d 行）-> %s",
-                     self._written, self._dropped, self._path)
+        _LOGGER.info(
+            "EventLogger 已停止：写入 %d 行（丢弃 %d 行）-> %s",
+            self._written,
+            self._dropped,
+            self._path,
+        )
 
     # -----------------------------------------------------------------
     # 订阅回调（总线工作线程）—— 仅序列化 + 入队
@@ -127,7 +131,8 @@ class EventLogger:
             data = self._payload_to_dict(topic, payload)
             line = json.dumps(
                 {"topic": topic.name, "ts": time.monotonic(), "data": data},
-                separators=(",", ":"), ensure_ascii=False,
+                separators=(",", ":"),
+                ensure_ascii=False,
             )
         except (TypeError, ValueError) as exc:
             _LOGGER.warning("录制序列化失败 topic=%s: %s", topic.name, exc)

@@ -50,7 +50,9 @@ class TrimeshCollider(MockMapCollider):
         :raises ValueError: 模型加载后不含可用三角面。
         """
         if trimesh is None:
-            raise RuntimeError("trimesh 未安装，无法使用 TrimeshCollider（pip install trimesh rtree）")
+            raise RuntimeError(
+                "trimesh 未安装，无法使用 TrimeshCollider（pip install trimesh rtree）"
+            )
 
         self._path = Path(model_path)
         self._material = material_type
@@ -69,7 +71,9 @@ class TrimeshCollider(MockMapCollider):
         self._ray = self._mesh.ray
         _LOGGER.info(
             "TrimeshCollider 已加载: %s (顶点=%d, 面=%d, 求交器=%s)",
-            self._path.name, len(self._mesh.vertices), len(self._mesh.faces),
+            self._path.name,
+            len(self._mesh.vertices),
+            len(self._mesh.faces),
             type(self._ray).__name__,
         )
 
@@ -99,14 +103,14 @@ class TrimeshCollider(MockMapCollider):
 
         # 计算每个交点沿射线正方向的有符号距离，剔除背向（负距离）交点。
         deltas = locations - origin[None, :]
-        signed = deltas @ direction               # 在射线方向上的投影 = 有符号距离
+        signed = deltas @ direction  # 在射线方向上的投影 = 有符号距离
         forward = signed > _EPS
         if not np.any(forward):
             return None
 
         cand_locs = locations[forward]
         cand_dist = signed[forward]
-        nearest = int(np.argmin(cand_dist))       # 最近的正向交点（剔除穿墙背面点）
+        nearest = int(np.argmin(cand_dist))  # 最近的正向交点（剔除穿墙背面点）
 
         point = cand_locs[nearest].astype(np.float64)
         distance = float(cand_dist[nearest])

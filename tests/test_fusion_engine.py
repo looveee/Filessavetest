@@ -88,20 +88,32 @@ def _stereo(delay: int = 0, n: int = 4096, seed: int = 0) -> np.ndarray:
 
 
 def _cv(x=10.0, y=20.0, z=5.0, heading=0.0, confidence=1.0, fid=1) -> CVUpdate:
-    return CVUpdate(x=x, y=y, z=z, heading=heading, frame_id=fid,
-                    timestamp=0.0, confidence=confidence)
+    return CVUpdate(
+        x=x, y=y, z=z, heading=heading, frame_id=fid, timestamp=0.0, confidence=confidence
+    )
 
 
 def _tick(audio: np.ndarray, is_end: bool, fid: int = 1) -> AudioTick:
-    return AudioTick(audio_array=audio, timestamp=1.23, frame_id=fid,
-                     rms=0.5, is_speech_start=not is_end, is_speech_end=is_end)
+    return AudioTick(
+        audio_array=audio,
+        timestamp=1.23,
+        frame_id=fid,
+        rms=0.5,
+        is_speech_start=not is_end,
+        is_speech_end=is_end,
+    )
 
 
 # 宽带处理器，使白噪声测试的相关峰更锐利、便于精确恢复时延。
 def _wide_processor() -> AudioProcessor:
-    return AudioProcessor(sample_rate=48000, mic_distance_m=0.18,
-                          speed_of_sound_mps=343.0, band_lowcut_hz=50.0,
-                          band_highcut_hz=20000.0, interp=4)
+    return AudioProcessor(
+        sample_rate=48000,
+        mic_distance_m=0.18,
+        speed_of_sound_mps=343.0,
+        band_lowcut_hz=50.0,
+        band_highcut_hz=20000.0,
+        interp=4,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +186,9 @@ def test_fusion_end_to_end_publishes_result(bus):
     """CV 状态 + 音频事件缝合 -> 解算敌人世界坐标 -> 发布 FUSION_RESULT。"""
     results: List[FusionResult] = []
     lock = threading.Lock()
-    bus.subscribe(Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release()))
+    bus.subscribe(
+        Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release())
+    )
 
     cfg = _make_config(collider_distance_m=20.0, min_confidence=0.85)
     fusion = FusionEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
@@ -203,7 +217,9 @@ def test_fusion_respects_heading_rotation(bus):
     """朝向 90° 时，射线应旋转到 +Y 方向。"""
     results: List[FusionResult] = []
     lock = threading.Lock()
-    bus.subscribe(Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release()))
+    bus.subscribe(
+        Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release())
+    )
 
     cfg = _make_config(collider_distance_m=20.0, min_confidence=0.85)
     fusion = FusionEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
@@ -278,17 +294,21 @@ def test_empty_event_no_audio_skips(bus):
 # ---------------------------------------------------------------------------
 def test_hot_reload_updates_fusion_params(bus):
     """热重载应即时刷新 DSP 与融合参数。"""
-    fake = _FakeConfigManager(_make_config(
-        min_confidence=0.85, mic_distance_m=0.18, collider_distance_m=20.0
-    ))
+    fake = _FakeConfigManager(
+        _make_config(min_confidence=0.85, mic_distance_m=0.18, collider_distance_m=20.0)
+    )
     fusion = FusionEngine(event_bus=bus, config_manager=fake)
     assert fusion._min_confidence == 0.85
     assert fusion._processor.mic_distance_m == pytest.approx(0.18)
 
-    fake.push(_make_config(
-        min_confidence=0.5, mic_distance_m=0.25, collider_distance_m=50.0,
-        speed_of_sound_mps=340.0,
-    ))
+    fake.push(
+        _make_config(
+            min_confidence=0.5,
+            mic_distance_m=0.25,
+            collider_distance_m=50.0,
+            speed_of_sound_mps=340.0,
+        )
+    )
     assert fusion._min_confidence == 0.5
     assert fusion._processor.mic_distance_m == pytest.approx(0.25)
     assert fusion._processor.speed_of_sound_mps == pytest.approx(340.0)
@@ -299,7 +319,9 @@ def test_multi_chunk_event_is_stitched(bus):
     """跨多个 AUDIO_TICK 的事件应被拼接后再融合（只产出一个结果）。"""
     results: List[FusionResult] = []
     lock = threading.Lock()
-    bus.subscribe(Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release()))
+    bus.subscribe(
+        Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release())
+    )
 
     fusion = FusionEngine(event_bus=bus, config_manager=_FakeConfigManager(_make_config()))
     fusion.start()

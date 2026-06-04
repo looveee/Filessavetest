@@ -26,7 +26,6 @@ import asyncio
 import json
 import logging
 import queue
-import threading
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
@@ -273,23 +272,31 @@ class WebServer:
     # 总线回调（工作线程）—— 仅序列化 + 入队
     # -----------------------------------------------------------------
     def _on_cv_update(self, cv: Any) -> None:
-        self._enqueue({
-            "type": "player",
-            "x": float(cv.x), "y": float(cv.y), "z": float(cv.z),
-            "heading": float(cv.heading),
-            "confidence": float(getattr(cv, "confidence", 1.0)),
-            "frame_id": int(getattr(cv, "frame_id", -1)),
-        })
+        self._enqueue(
+            {
+                "type": "player",
+                "x": float(cv.x),
+                "y": float(cv.y),
+                "z": float(cv.z),
+                "heading": float(cv.heading),
+                "confidence": float(getattr(cv, "confidence", 1.0)),
+                "frame_id": int(getattr(cv, "frame_id", -1)),
+            }
+        )
 
     def _on_fusion_result(self, r: Any) -> None:
-        self._enqueue({
-            "type": "enemy",
-            "x": float(r.enemy_x), "y": float(r.enemy_y), "z": float(r.enemy_z),
-            "confidence": float(r.confidence),
-            "material": str(getattr(r, "material_type", "mock")),
-            "theta_world_deg": float(getattr(r, "theta_world_deg", 0.0)),
-            "range_m": float(getattr(r, "range_m", 0.0)),
-        })
+        self._enqueue(
+            {
+                "type": "enemy",
+                "x": float(r.enemy_x),
+                "y": float(r.enemy_y),
+                "z": float(r.enemy_z),
+                "confidence": float(r.confidence),
+                "material": str(getattr(r, "material_type", "mock")),
+                "theta_world_deg": float(getattr(r, "theta_world_deg", 0.0)),
+                "range_m": float(getattr(r, "range_m", 0.0)),
+            }
+        )
 
     def _enqueue(self, payload: Dict[str, Any]) -> None:
         """序列化并入队；队满则丢弃最旧消息（雷达只关心最新态势）。"""
@@ -347,4 +354,5 @@ class WebServer:
     def run(self) -> None:
         """以 uvicorn 阻塞运行本服务（信号处理交由 uvicorn）。"""
         import uvicorn
+
         uvicorn.run(self.app, host=self.host, port=self.port, log_level="info")

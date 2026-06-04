@@ -19,7 +19,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import event_bus as eb  # noqa: E402
 from event_bus import EventBus, Topic  # noqa: E402
 
 
@@ -51,6 +50,7 @@ def test_multiple_subscribers_same_topic(bus):
         def _cb(_p):
             with lock:
                 hits[key] += 1
+
         return _cb
 
     bus.subscribe(Topic.AUDIO_TICK, make("a"))
@@ -87,9 +87,7 @@ def test_no_message_loss_under_concurrency(bus):
         for i in range(per_producer):
             bus.publish(Topic.CV_UPDATE, (pid, i))
 
-    threads = [
-        threading.Thread(target=producer, args=(pid,)) for pid in range(n_producers)
-    ]
+    threads = [threading.Thread(target=producer, args=(pid,)) for pid in range(n_producers)]
     for t in threads:
         t.start()
     for t in threads:

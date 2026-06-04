@@ -43,6 +43,7 @@ _LOGGER: logging.Logger = logging.getLogger("event_replayer")
 @dataclasses.dataclass
 class _Entry:
     """一条已解析的回放记录。"""
+
     topic: Topic
     ts: float
     data: Dict[str, Any]

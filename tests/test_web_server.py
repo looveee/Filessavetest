@@ -21,7 +21,7 @@ import config_manager as cm  # noqa: E402
 from cv_engine import CVUpdate  # noqa: E402
 from event_bus import EventBus, Topic  # noqa: E402
 from fusion_engine import FusionResult  # noqa: E402
-from web_server import WebServer, _RADAR_HTML  # noqa: E402
+from web_server import WebServer  # noqa: E402
 
 
 @pytest.fixture()
@@ -50,9 +50,17 @@ def _cv(x=1.0, y=2.0, z=3.0, heading=45.0) -> CVUpdate:
 
 
 def _fusion() -> FusionResult:
-    return FusionResult(enemy_x=5.0, enemy_y=6.0, enemy_z=7.0, confidence=0.91,
-                        material_type="mock", theta_world_deg=12.0, range_m=20.0,
-                        source_frame_id=3, timestamp=0.0)
+    return FusionResult(
+        enemy_x=5.0,
+        enemy_y=6.0,
+        enemy_z=7.0,
+        confidence=0.91,
+        material_type="mock",
+        theta_world_deg=12.0,
+        range_m=20.0,
+        source_frame_id=3,
+        timestamp=0.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +109,7 @@ def test_outbox_backpressure_drops_oldest(bus):
 # ---------------------------------------------------------------------------
 def test_index_returns_radar_html(bus):
     from fastapi.testclient import TestClient
+
     ws = WebServer(event_bus=bus, config_manager=_FakeConfigManager())
     with TestClient(ws.app) as client:
         resp = client.get("/")
@@ -111,6 +120,7 @@ def test_index_returns_radar_html(bus):
 
 def test_health_endpoint(bus):
     from fastapi.testclient import TestClient
+
     ws = WebServer(event_bus=bus, config_manager=_FakeConfigManager())
     with TestClient(ws.app) as client:
         resp = client.get("/health")
@@ -124,6 +134,7 @@ def test_health_endpoint(bus):
 def test_websocket_receives_broadcast(bus):
     """发布总线事件后，已连接的 WebSocket 客户端应收到对应 JSON。"""
     from fastapi.testclient import TestClient
+
     ws = WebServer(event_bus=bus, config_manager=_FakeConfigManager())
 
     with TestClient(ws.app) as client:

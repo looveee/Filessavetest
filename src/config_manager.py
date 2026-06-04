@@ -54,21 +54,23 @@ _LOG_FILE: Path = _LOG_DIR / "app.log"
 @dataclass
 class AudioConfig:
     """音频提取模块配置。"""
-    sample_rate: int = 48000        # 采样率 (Hz)
-    channels: int = 2               # 声道数
-    chunk_size: int = 1024          # 缓冲区块大小（帧）
+
+    sample_rate: int = 48000  # 采样率 (Hz)
+    channels: int = 2  # 声道数
+    chunk_size: int = 1024  # 缓冲区块大小（帧）
     energy_threshold: float = 0.015  # VAD 触发的 RMS 能量阈值
-    vad_threshold: float = 0.6      # 活动检测置信度阈值（预留给后续模型 VAD）
-    vad_start_chunks: int = 3       # 连续多少个高能量 chunk 判定"声音事件开始"
-    vad_preroll_chunks: int = 8     # 起音预缓冲长度(chunk数)，应 >= vad_start_chunks 以回补 onset 前波形
-    vad_silence_duration_ms: float = 300.0  # 能量回落后持续多久静音判定"事件结束"(毫秒)
+    vad_threshold: float = 0.6  # 活动检测置信度阈值（预留给后续模型 VAD）
+    vad_start_chunks: int = 3  # 连续多少个高能量 chunk 判定"声音事件开始"
+    vad_preroll_chunks: int = 8  # 起音预缓冲长度，应 >= vad_start_chunks
+    vad_silence_duration_ms: float = 300.0  # 能量回落静音多久判定"事件结束"(ms)
 
 
 @dataclass
 class RoiBBox:
     """小地图感兴趣区域 (ROI) 的像素边界框。"""
-    x: int = 40   # 左上角 X 偏移 (px)
-    y: int = 40   # 左上角 Y 偏移 (px)
+
+    x: int = 40  # 左上角 X 偏移 (px)
+    y: int = 40  # 左上角 Y 偏移 (px)
     w: int = 320  # 宽度 (px)
     h: int = 320  # 高度 (px)
 
@@ -76,31 +78,33 @@ class RoiBBox:
 @dataclass
 class CVConfig:
     """计算机视觉模块配置。"""
-    fps_limit: int = 30                       # 视觉处理帧率上限
+
+    fps_limit: int = 30  # 视觉处理帧率上限
     roi_bbox: RoiBBox = field(default_factory=RoiBBox)  # 小地图 ROI
 
 
 @dataclass
 class FusionConfig:
     """多模态融合模块配置。"""
-    tolerance_radius_meters: float = 1.5  # 融合容差半径 (米)
-    min_confidence: float = 0.85          # 最小可信度阈值，低于此值的融合结果被丢弃
-    # --- 声源测角 (GCC-PHAT) 物理常数 ---
-    mic_distance_m: float = 0.18          # 双声道等效间距/模拟头围 (米)，用于 TDE->角度换算
-    speed_of_sound_mps: float = 343.0     # 声速 (米/秒, 常温空气)
-    band_lowcut_hz: float = 300.0         # GCC-PHAT 带通下限，截断低频底噪 (Hz)
-    band_highcut_hz: float = 3500.0       # GCC-PHAT 带通上限，截断高频噪声 (Hz)
-    gcc_interp: int = 4                   # GCC-PHAT 上采样倍数，提升 TDE 亚采样分辨率
-    # --- Mock 碰撞体 ---
-    collider_distance_m: float = 20.0     # MockMapCollider 假想墙距离 (米)
-    # --- 真实 3D 网格碰撞体 ---
-    map_model_path: str = ""              # 地图模型路径(.obj/.stl 等); 非空时启用 TrimeshCollider
 
+    tolerance_radius_meters: float = 1.5  # 融合容差半径 (米)
+    min_confidence: float = 0.85  # 最小可信度阈值，低于此值的融合结果被丢弃
+    # --- 声源测角 (GCC-PHAT) 物理常数 ---
+    mic_distance_m: float = 0.18  # 双声道等效间距/模拟头围 (米)，用于 TDE->角度换算
+    speed_of_sound_mps: float = 343.0  # 声速 (米/秒, 常温空气)
+    band_lowcut_hz: float = 300.0  # GCC-PHAT 带通下限，截断低频底噪 (Hz)
+    band_highcut_hz: float = 3500.0  # GCC-PHAT 带通上限，截断高频噪声 (Hz)
+    gcc_interp: int = 4  # GCC-PHAT 上采样倍数，提升 TDE 亚采样分辨率
+    # --- Mock 碰撞体 ---
+    collider_distance_m: float = 20.0  # MockMapCollider 假想墙距离 (米)
+    # --- 真实 3D 网格碰撞体 ---
+    map_model_path: str = ""  # 地图模型路径(.obj/.stl 等); 非空时启用 TrimeshCollider
 
 
 @dataclass
 class AppConfig:
     """顶层配置聚合根，对应整个 YAML 文档。"""
+
     audio: AudioConfig = field(default_factory=AudioConfig)
     cv: CVConfig = field(default_factory=CVConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
@@ -332,9 +336,7 @@ class ConfigManager:
     # -----------------------------------------------------------------
     # 5.x 配置变更订阅（供 CVEngine 等模块响应热重载）
     # -----------------------------------------------------------------
-    def register_change_listener(
-        self, listener: "Callable[[AppConfig], None]"
-    ) -> None:
+    def register_change_listener(self, listener: "Callable[[AppConfig], None]") -> None:
         """
         注册配置变更监听器。每当热重载产生实质变化时，将以最新配置快照回调。
 
@@ -346,9 +348,7 @@ class ConfigManager:
             if listener not in self._change_listeners:
                 self._change_listeners.append(listener)
 
-    def unregister_change_listener(
-        self, listener: "Callable[[AppConfig], None]"
-    ) -> None:
+    def unregister_change_listener(self, listener: "Callable[[AppConfig], None]") -> None:
         """注销配置变更监听器（不存在时静默忽略）。"""
         with self._state_lock:
             if listener in self._change_listeners:

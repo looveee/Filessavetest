@@ -46,9 +46,9 @@ try:
     from audio_engine import AudioTick
     from config_manager import AppConfig, ConfigManager
 except ImportError:  # pragma: no cover
-    CVUpdate = Any        # type: ignore
-    AudioTick = Any       # type: ignore
-    AppConfig = Any       # type: ignore
+    CVUpdate = Any  # type: ignore
+    AudioTick = Any  # type: ignore
+    AppConfig = Any  # type: ignore
     ConfigManager = None  # type: ignore
 
 _LOGGER: logging.Logger = logging.getLogger("fusion_engine")
@@ -62,18 +62,18 @@ _EPS: float = 1e-12
 class FusionResult:
     """一次融合推导出的敌人世界定位，作为 FUSION_RESULT 主题的标准 payload。"""
 
-    enemy_x: float                 # 敌人世界坐标 X (米)
-    enemy_y: float                 # 敌人世界坐标 Y (米)
-    enemy_z: float                 # 敌人世界坐标 Z (米)
-    confidence: float              # 融合置信度 (0~1)
-    material_type: str = "mock"    # 命中材质类型（Mock 阶段固定 'mock'）
+    enemy_x: float  # 敌人世界坐标 X (米)
+    enemy_y: float  # 敌人世界坐标 Y (米)
+    enemy_z: float  # 敌人世界坐标 Z (米)
+    confidence: float  # 融合置信度 (0~1)
+    material_type: str = "mock"  # 命中材质类型（Mock 阶段固定 'mock'）
     # --- 诊断信息（便于下游/回放分析）---
-    theta_rel_deg: float = 0.0     # 声源相对本机朝向的夹角 (度)
-    theta_world_deg: float = 0.0   # 声源世界绝对发射角 (度)
-    tde_seconds: float = 0.0       # 估计的声道间时延 (秒)
-    range_m: float = 0.0           # 命中距离 (米)
-    source_frame_id: int = -1      # 触发本次融合的音频事件结束帧号
-    timestamp: float = 0.0         # 音频事件结束时刻 (monotonic, 秒)
+    theta_rel_deg: float = 0.0  # 声源相对本机朝向的夹角 (度)
+    theta_world_deg: float = 0.0  # 声源世界绝对发射角 (度)
+    tde_seconds: float = 0.0  # 估计的声道间时延 (秒)
+    range_m: float = 0.0  # 命中距离 (米)
+    source_frame_id: int = -1  # 触发本次融合的音频事件结束帧号
+    timestamp: float = 0.0  # 音频事件结束时刻 (monotonic, 秒)
 
 
 # ===========================================================================
@@ -82,9 +82,10 @@ class FusionResult:
 @dataclass(frozen=True)
 class CollisionHit:
     """射线与碰撞体的交点。"""
-    point: np.ndarray      # 交点世界坐标 (3,)
-    distance: float        # 沿射线的命中距离 (米)
-    material_type: str     # 命中材质
+
+    point: np.ndarray  # 交点世界坐标 (3,)
+    distance: float  # 沿射线的命中距离 (米)
+    material_type: str  # 命中材质
 
 
 class MockMapCollider(ABC):
@@ -267,7 +268,7 @@ class FusionEngine:
             distance=self._collider_distance
         )
         self._external_collider: bool = collider is not None  # 注入的碰撞体不被配置覆盖
-        self._loaded_model_path: str = ""   # 已加载的网格模型路径（用于"只加载一次"判定）
+        self._loaded_model_path: str = ""  # 已加载的网格模型路径（用于"只加载一次"判定）
 
         self._started: bool = False
 
@@ -277,8 +278,10 @@ class FusionEngine:
 
         _LOGGER.info(
             "FusionEngine 初始化 (min_conf=%.2f, mic=%.3fm, c=%.1f, wall=%.1fm)。",
-            self._min_confidence, self._processor.mic_distance_m,
-            self._processor.speed_of_sound_mps, self._collider_distance,
+            self._min_confidence,
+            self._processor.mic_distance_m,
+            self._processor.speed_of_sound_mps,
+            self._collider_distance,
         )
 
     # -----------------------------------------------------------------
@@ -319,12 +322,16 @@ class FusionEngine:
 
         if model_path:
             # 已加载同一模型则复用，满足"只加载一次"。
-            if model_path == self._loaded_model_path and isinstance(self._collider, MockMapCollider):
+            if model_path == self._loaded_model_path and isinstance(
+                self._collider, MockMapCollider
+            ):
                 from mesh_collider import TrimeshCollider  # 局部导入，避免循环依赖
+
                 if isinstance(self._collider, TrimeshCollider):
                     return None
             try:
                 from mesh_collider import TrimeshCollider
+
                 collider = TrimeshCollider(model_path)
                 self._loaded_model_path = model_path
                 _LOGGER.info("FusionEngine 启用真实网格碰撞体: %s", model_path)
@@ -434,9 +441,7 @@ class FusionEngine:
                 min_conf = self._min_confidence
 
             if confidence < min_conf:
-                _LOGGER.debug(
-                    "融合置信度 %.3f < 阈值 %.3f，丢弃该结果。", confidence, min_conf
-                )
+                _LOGGER.debug("融合置信度 %.3f < 阈值 %.3f，丢弃该结果。", confidence, min_conf)
                 return
 
             result = FusionResult(
@@ -455,11 +460,13 @@ class FusionEngine:
             self._bus.publish(Topic.FUSION_RESULT, result)
             _LOGGER.info(
                 "融合命中 ✔ E=(%.2f, %.2f, %.2f) conf=%.3f θ_rel=%.1f° θ_world=%.1f°",
-                result.enemy_x, result.enemy_y, result.enemy_z,
-                confidence, result.theta_rel_deg, result.theta_world_deg,
+                result.enemy_x,
+                result.enemy_y,
+                result.enemy_z,
+                confidence,
+                result.theta_rel_deg,
+                result.theta_world_deg,
             )
         except Exception as exc:  # noqa: BLE001  融合异常不得拖垮总线分发线程
             _LOGGER.exception("融合计算异常: %s", exc)
-            self._bus.publish(
-                Topic.SYS_ERROR, {"source": "fusion_engine", "error": repr(exc)}
-            )
+            self._bus.publish(Topic.SYS_ERROR, {"source": "fusion_engine", "error": repr(exc)})

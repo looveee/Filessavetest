@@ -99,7 +99,11 @@ def test_vad_detects_burst_and_publishes(bus):
     engine = AudioEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
 
     # chunk=256@48kHz => 每块约 5.33ms；300ms 静音需约 57 块，故尾部给足 60 块静音。
-    seq = [_silence() for _ in range(5)] + [_loud() for _ in range(8)] + [_silence() for _ in range(60)]
+    seq = (
+        [_silence() for _ in range(5)]
+        + [_loud() for _ in range(8)]
+        + [_silence() for _ in range(60)]
+    )
     for chunk in seq:
         engine._process_chunk(chunk)
 
@@ -154,14 +158,12 @@ def test_preroll_recovers_onset(bus):
 # ---------------------------------------------------------------------------
 def test_hot_reload_changes_threshold(bus):
     """热重载提高能量阈值后，原本可触发的能量不再触发。"""
-    fake_mgr = _FakeConfigManager(
-        _make_config(energy_threshold=0.05, vad_start_chunks=2)
-    )
+    fake_mgr = _FakeConfigManager(_make_config(energy_threshold=0.05, vad_start_chunks=2))
     engine = AudioEngine(event_bus=bus, config_manager=fake_mgr)
     assert engine._energy_threshold == 0.05
 
     # 中等能量信号：RMS 约 0.2，高于 0.05、低于 0.9
-    mid = (np.ones((256, 2), dtype=np.float32) * 0.2)
+    mid = np.ones((256, 2), dtype=np.float32) * 0.2
 
     received: List[AudioTick] = []
     bus.subscribe(Topic.AUDIO_TICK, lambda t: received.append(t))
@@ -278,7 +280,11 @@ def test_end_to_end_with_mocked_recorder(bus):
     bus.subscribe(Topic.AUDIO_TICK, on_tick)
 
     # 构造 mock 采集后端：吐出 静音→高能量→静音 序列，耗尽后持续吐静音。
-    seq = [_silence() for _ in range(3)] + [_loud() for _ in range(6)] + [_silence() for _ in range(40)]
+    seq = (
+        [_silence() for _ in range(3)]
+        + [_loud() for _ in range(6)]
+        + [_silence() for _ in range(40)]
+    )
     idx = {"i": 0}
     seq_lock = threading.Lock()
 
@@ -300,8 +306,9 @@ def test_end_to_end_with_mocked_recorder(bus):
         assert sample_rate == 48000 and channels == 2
         yield _FakeRecorder()
 
-    cfg = _make_config(energy_threshold=0.05, vad_start_chunks=3,
-                       vad_silence_duration_ms=200.0, chunk_size=256)
+    cfg = _make_config(
+        energy_threshold=0.05, vad_start_chunks=3, vad_silence_duration_ms=200.0, chunk_size=256
+    )
     engine = AudioEngine(
         event_bus=bus,
         config_manager=_FakeConfigManager(cfg),

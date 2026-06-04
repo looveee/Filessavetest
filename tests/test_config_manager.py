@@ -63,8 +63,7 @@ def test_defaults_when_file_missing(manager):
 
 def test_load_valid_yaml(manager):
     """合法 YAML 应被正确解析并覆盖默认值。"""
-    inst = manager(
-        """
+    inst = manager("""
 audio:
   sample_rate: 44100
   channels: 1
@@ -73,8 +72,7 @@ cv:
   roi_bbox: {x: 10, y: 20, w: 100, h: 200}
 fusion:
   min_confidence: 0.5
-"""
-    )
+""")
     cfg = inst.config
     assert cfg.audio.sample_rate == 44100
     assert cfg.audio.channels == 1

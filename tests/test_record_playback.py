@@ -40,20 +40,32 @@ def bus():
 
 
 def _cv(x=1.0, y=2.0, heading=30.0, fid=1) -> CVUpdate:
-    return CVUpdate(x=x, y=y, z=3.0, heading=heading, frame_id=fid,
-                    timestamp=0.0, confidence=0.9)
+    return CVUpdate(x=x, y=y, z=3.0, heading=heading, frame_id=fid, timestamp=0.0, confidence=0.9)
 
 
 def _audio(rms=0.4, fid=2, start=True, end=False, n=256, ch=2) -> AudioTick:
-    return AudioTick(audio_array=np.random.rand(n, ch).astype(np.float32),
-                     timestamp=0.0, frame_id=fid, rms=rms,
-                     is_speech_start=start, is_speech_end=end)
+    return AudioTick(
+        audio_array=np.random.rand(n, ch).astype(np.float32),
+        timestamp=0.0,
+        frame_id=fid,
+        rms=rms,
+        is_speech_start=start,
+        is_speech_end=end,
+    )
 
 
 def _fusion(fid=3) -> FusionResult:
-    return FusionResult(enemy_x=5.0, enemy_y=6.0, enemy_z=7.0, confidence=0.9,
-                        material_type="mock", theta_world_deg=12.0, range_m=20.0,
-                        source_frame_id=fid, timestamp=0.0)
+    return FusionResult(
+        enemy_x=5.0,
+        enemy_y=6.0,
+        enemy_z=7.0,
+        confidence=0.9,
+        material_type="mock",
+        theta_world_deg=12.0,
+        range_m=20.0,
+        source_frame_id=fid,
+        timestamp=0.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +81,11 @@ def test_logger_writes_jsonl_and_strips_waveform(bus, tmp_path):
     assert bus.join(timeout=2.0)
     logger.stop()
 
-    lines = [json.loads(l) for l in logger.path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [
+        json.loads(ln) for ln in logger.path.read_text(encoding="utf-8").splitlines() if ln.strip()
+    ]
     assert len(lines) == 3
-    by_topic = {l["topic"]: l for l in lines}
+    by_topic = {ln["topic"]: ln for ln in lines}
 
     # AUDIO_TICK：无波形，仅元数据
     audio = by_topic["AUDIO_TICK"]["data"]
@@ -84,7 +98,7 @@ def test_logger_writes_jsonl_and_strips_waveform(bus, tmp_path):
     assert by_topic["CV_UPDATE"]["data"]["heading"] == pytest.approx(30.0)
     assert by_topic["FUSION_RESULT"]["data"]["enemy_x"] == pytest.approx(5.0)
     # 每行都有调度用的 ts
-    assert all(isinstance(l["ts"], (int, float)) for l in lines)
+    assert all(isinstance(ln["ts"], (int, float)) for ln in lines)
 
 
 def test_logger_callback_is_non_blocking(bus, tmp_path):
@@ -112,23 +126,65 @@ def _write_jsonl(path: Path, rows: List[Tuple[str, float, dict]]) -> None:
 
 def test_replay_roundtrip_reconstructs_all_topics(bus, tmp_path):
     path = tmp_path / "rec.jsonl"
-    _write_jsonl(path, [
-        ("CV_UPDATE", 100.0, {"x": 1.0, "y": 2.0, "z": 3.0, "heading": 30.0,
-                              "frame_id": 1, "timestamp": 0.0, "confidence": 0.9}),
-        ("AUDIO_TICK", 100.02, {"timestamp": 0.0, "frame_id": 2, "rms": 0.4,
-                                "is_speech_start": True, "is_speech_end": False,
-                                "n_frames": 256, "channels": 2}),
-        ("FUSION_RESULT", 100.05, {"enemy_x": 5.0, "enemy_y": 6.0, "enemy_z": 7.0,
-                                   "confidence": 0.9, "material_type": "mock",
-                                   "theta_world_deg": 12.0, "range_m": 20.0,
-                                   "source_frame_id": 3, "timestamp": 0.0}),
-    ])
+    _write_jsonl(
+        path,
+        [
+            (
+                "CV_UPDATE",
+                100.0,
+                {
+                    "x": 1.0,
+                    "y": 2.0,
+                    "z": 3.0,
+                    "heading": 30.0,
+                    "frame_id": 1,
+                    "timestamp": 0.0,
+                    "confidence": 0.9,
+                },
+            ),
+            (
+                "AUDIO_TICK",
+                100.02,
+                {
+                    "timestamp": 0.0,
+                    "frame_id": 2,
+                    "rms": 0.4,
+                    "is_speech_start": True,
+                    "is_speech_end": False,
+                    "n_frames": 256,
+                    "channels": 2,
+                },
+            ),
+            (
+                "FUSION_RESULT",
+                100.05,
+                {
+                    "enemy_x": 5.0,
+                    "enemy_y": 6.0,
+                    "enemy_z": 7.0,
+                    "confidence": 0.9,
+                    "material_type": "mock",
+                    "theta_world_deg": 12.0,
+                    "range_m": 20.0,
+                    "source_frame_id": 3,
+                    "timestamp": 0.0,
+                },
+            ),
+        ],
+    )
 
     received = {"cv": [], "audio": [], "fusion": []}
     lock = threading.Lock()
-    bus.subscribe(Topic.CV_UPDATE, lambda p: (lock.acquire(), received["cv"].append(p), lock.release()))
-    bus.subscribe(Topic.AUDIO_TICK, lambda p: (lock.acquire(), received["audio"].append(p), lock.release()))
-    bus.subscribe(Topic.FUSION_RESULT, lambda p: (lock.acquire(), received["fusion"].append(p), lock.release()))
+    bus.subscribe(
+        Topic.CV_UPDATE, lambda p: (lock.acquire(), received["cv"].append(p), lock.release())
+    )
+    bus.subscribe(
+        Topic.AUDIO_TICK, lambda p: (lock.acquire(), received["audio"].append(p), lock.release())
+    )
+    bus.subscribe(
+        Topic.FUSION_RESULT,
+        lambda p: (lock.acquire(), received["fusion"].append(p), lock.release()),
+    )
 
     replayer = EventReplayer(path, event_bus=bus, speed_multiplier=5.0)
     replayer.start()
@@ -154,12 +210,37 @@ def test_replay_roundtrip_reconstructs_all_topics(bus, tmp_path):
 def test_replay_respects_speed_multiplier(bus, tmp_path):
     """录制相邻间隔 0.2s，2x 回放总时长应约 0.1s。"""
     path = tmp_path / "timed.jsonl"
-    _write_jsonl(path, [
-        ("CV_UPDATE", 10.0, {"x": 0.0, "y": 0.0, "z": 0.0, "heading": 0.0,
-                             "frame_id": 1, "timestamp": 0.0, "confidence": 1.0}),
-        ("CV_UPDATE", 10.2, {"x": 1.0, "y": 0.0, "z": 0.0, "heading": 0.0,
-                             "frame_id": 2, "timestamp": 0.0, "confidence": 1.0}),
-    ])
+    _write_jsonl(
+        path,
+        [
+            (
+                "CV_UPDATE",
+                10.0,
+                {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "heading": 0.0,
+                    "frame_id": 1,
+                    "timestamp": 0.0,
+                    "confidence": 1.0,
+                },
+            ),
+            (
+                "CV_UPDATE",
+                10.2,
+                {
+                    "x": 1.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "heading": 0.0,
+                    "frame_id": 2,
+                    "timestamp": 0.0,
+                    "confidence": 1.0,
+                },
+            ),
+        ],
+    )
 
     stamps: List[float] = []
     bus.subscribe(Topic.CV_UPDATE, lambda p: stamps.append(time.monotonic()))
@@ -179,18 +260,43 @@ def test_replay_respects_speed_multiplier(bus, tmp_path):
 def test_replay_can_be_stopped(bus, tmp_path):
     """长间隔回放应能被 stop() 即时打断。"""
     path = tmp_path / "long.jsonl"
-    _write_jsonl(path, [
-        ("CV_UPDATE", 0.0, {"x": 0.0, "y": 0.0, "z": 0.0, "heading": 0.0,
-                            "frame_id": 1, "timestamp": 0.0, "confidence": 1.0}),
-        ("CV_UPDATE", 100.0, {"x": 1.0, "y": 0.0, "z": 0.0, "heading": 0.0,
-                              "frame_id": 2, "timestamp": 0.0, "confidence": 1.0}),
-    ])
+    _write_jsonl(
+        path,
+        [
+            (
+                "CV_UPDATE",
+                0.0,
+                {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "heading": 0.0,
+                    "frame_id": 1,
+                    "timestamp": 0.0,
+                    "confidence": 1.0,
+                },
+            ),
+            (
+                "CV_UPDATE",
+                100.0,
+                {
+                    "x": 1.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "heading": 0.0,
+                    "frame_id": 2,
+                    "timestamp": 0.0,
+                    "confidence": 1.0,
+                },
+            ),
+        ],
+    )
 
     replayer = EventReplayer(path, event_bus=bus, speed_multiplier=1.0)
     replayer.start()
     time.sleep(0.1)
     t0 = time.monotonic()
-    replayer.stop(timeout=3.0)   # 第二个事件在 100s 后，必须被打断
+    replayer.stop(timeout=3.0)  # 第二个事件在 100s 后，必须被打断
     assert time.monotonic() - t0 < 2.0, "stop() 未能即时打断回放"
 
 

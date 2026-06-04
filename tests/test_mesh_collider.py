@@ -82,8 +82,14 @@ def _zero_delay_tick(n=8192, ch=2) -> AudioTick:
     rng = np.random.default_rng(0)
     left = rng.standard_normal(n).astype(np.float32)
     audio = np.stack([left, left], axis=1)  # 零时延 -> θ_rel≈0
-    return AudioTick(audio_array=audio, timestamp=0.0, frame_id=9, rms=0.5,
-                     is_speech_start=False, is_speech_end=True)
+    return AudioTick(
+        audio_array=audio,
+        timestamp=0.0,
+        frame_id=9,
+        rms=0.5,
+        is_speech_start=False,
+        is_speech_end=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +148,9 @@ def test_fusion_uses_mesh_collider(bus, tmp_path):
 
     results: List[FusionResult] = []
     lock = threading.Lock()
-    bus.subscribe(Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release()))
+    bus.subscribe(
+        Topic.FUSION_RESULT, lambda r: (lock.acquire(), results.append(r), lock.release())
+    )
     fusion.start()
 
     # 玩家在原点朝 +X，零时延音频 -> 射线 +X 命中箱体前表面 x=9
@@ -176,8 +184,9 @@ def test_mesh_loaded_only_once(bus, tmp_path):
 
 def test_invalid_model_falls_back_to_wall(bus, tmp_path):
     """非法模型路径应回退到假想墙碰撞体，系统不崩溃。"""
-    cfg = _make_config(map_model_path=str(tmp_path / "does_not_exist.obj"),
-                       collider_distance_m=20.0)
+    cfg = _make_config(
+        map_model_path=str(tmp_path / "does_not_exist.obj"), collider_distance_m=20.0
+    )
     fusion = FusionEngine(event_bus=bus, config_manager=_FakeConfigManager(cfg))
     assert isinstance(fusion._collider, FixedDistanceWallCollider), "加载失败应回退假想墙"
 

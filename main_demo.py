@@ -70,10 +70,18 @@ class _Simulator:
             # 玩家绕世界原点缓慢巡逻，朝向随运动切线旋转
             px, py = 30.0 * math.cos(t * 0.2), 30.0 * math.sin(t * 0.2)
             heading = (math.degrees(t * 0.2) + 90.0) % 360.0
-            self._bus.publish(Topic.CV_UPDATE, CVUpdate(
-                x=px, y=py, z=1.8, heading=heading,
-                frame_id=frame, timestamp=time.monotonic(), confidence=0.97,
-            ))
+            self._bus.publish(
+                Topic.CV_UPDATE,
+                CVUpdate(
+                    x=px,
+                    y=py,
+                    z=1.8,
+                    heading=heading,
+                    frame_id=frame,
+                    timestamp=time.monotonic(),
+                    confidence=0.97,
+                ),
+            )
 
             # 每 ~1.2s 在玩家周围抛一个敌人接触点
             if t - last_enemy > 1.2:
@@ -81,13 +89,20 @@ class _Simulator:
                 ang = math.radians((heading + 40.0 * math.sin(t)) % 360.0)
                 rng = 15.0 + 5.0 * math.sin(t * 1.3)
                 ex, ey = px + rng * math.cos(ang), py + rng * math.sin(ang)
-                self._bus.publish(Topic.FUSION_RESULT, FusionResult(
-                    enemy_x=ex, enemy_y=ey, enemy_z=1.6,
-                    confidence=0.85 + 0.14 * abs(math.sin(t * 2)),
-                    material_type="mock",
-                    theta_world_deg=math.degrees(ang), range_m=rng,
-                    source_frame_id=frame, timestamp=time.monotonic(),
-                ))
+                self._bus.publish(
+                    Topic.FUSION_RESULT,
+                    FusionResult(
+                        enemy_x=ex,
+                        enemy_y=ey,
+                        enemy_z=1.6,
+                        confidence=0.85 + 0.14 * abs(math.sin(t * 2)),
+                        material_type="mock",
+                        theta_world_deg=math.degrees(ang),
+                        range_m=rng,
+                        source_frame_id=frame,
+                        timestamp=time.monotonic(),
+                    ),
+                )
 
             self._stop.wait(timeout=0.05)  # ~20Hz
 
@@ -99,43 +114,56 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="FPS 态势感知系统 端到端 Demo")
     parser.add_argument("--host", default="127.0.0.1", help="Web 服务监听地址")
     parser.add_argument("--port", type=int, default=8000, help="Web 服务端口")
-    parser.add_argument("--simulate", action="store_true",
-                        help="注入合成态势（叠加在真实引擎之上）")
-    parser.add_argument("--no-engines", action="store_true",
-                        help="跳过需要硬件的 CVEngine/AudioEngine，仅跑 Web + 合成态势")
-    parser.add_argument("--record", action="store_true",
-                        help="挂载 EventLogger，将态势流录制到 records/*.jsonl")
-    parser.add_argument("--replay", metavar="FILE",
-                        help="回放指定 .jsonl：禁用真实引擎，重放态势到雷达")
-    parser.add_argument("--speed", type=float, default=1.0,
-                        help="回放速度倍率（配合 --replay，>1 快放，<1 慢放）")
+    parser.add_argument(
+        "--simulate", action="store_true", help="注入合成态势（叠加在真实引擎之上）"
+    )
+    parser.add_argument(
+        "--no-engines",
+        action="store_true",
+        help="跳过需要硬件的 CVEngine/AudioEngine，仅跑 Web + 合成态势",
+    )
+    parser.add_argument(
+        "--record", action="store_true", help="挂载 EventLogger，将态势流录制到 records/*.jsonl"
+    )
+    parser.add_argument(
+        "--replay", metavar="FILE", help="回放指定 .jsonl：禁用真实引擎，重放态势到雷达"
+    )
+    parser.add_argument(
+        "--speed", type=float, default=1.0, help="回放速度倍率（配合 --replay，>1 快放，<1 慢放）"
+    )
     args = parser.parse_args()
 
     replay_mode = args.replay is not None
 
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-                        datefmt="%H:%M:%S")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     # 1) 基础设施
     cfg_mgr = ConfigManager()
-    cfg_mgr.start_watching()            # 配置热重载
+    cfg_mgr.start_watching()  # 配置热重载
     bus = EventBus()
 
-    stoppables: List = []               # 逆序优雅停止
+    stoppables: List = []  # 逆序优雅停止
 
     # 录制器最先挂载并订阅，确保从第一个事件起就被完整捕获。
     if args.record:
         from event_logger import EventLogger
+
         logger = EventLogger(event_bus=bus)
-        logger.start(); stoppables.append(logger)
+        logger.start()
+        stoppables.append(logger)
         _LOGGER.info("录制已挂载 -> %s", logger.path)
 
     if replay_mode:
         # ===== 回放模式：禁用真实引擎/融合/合成，直接重放录制流到总线 =====
         from event_replayer import EventReplayer
+
         replayer = EventReplayer(args.replay, event_bus=bus, speed_multiplier=args.speed)
-        replayer.start(); stoppables.append(replayer)
+        replayer.start()
+        stoppables.append(replayer)
         _LOGGER.info("回放模式：重放 %s（speed=%.2fx）", args.replay, args.speed)
     else:
         # ===== 实时模式：按依赖顺序拉起引擎 =====
@@ -143,25 +171,32 @@ def main() -> None:
             try:
                 from cv_engine import CVEngine
                 from audio_engine import AudioEngine
+
                 cv = CVEngine(event_bus=bus, config_manager=cfg_mgr)
                 audio = AudioEngine(event_bus=bus, config_manager=cfg_mgr)
-                cv.start(); stoppables.append(cv)
-                audio.start(); stoppables.append(audio)
+                cv.start()
+                stoppables.append(cv)
+                audio.start()
+                stoppables.append(audio)
             except Exception as exc:  # noqa: BLE001  缺少硬件/依赖时降级为仅 Web
                 _LOGGER.warning("CV/Audio 引擎启动失败（缺硬件/依赖？），降级运行: %s", exc)
 
         # FusionEngine 纯计算，始终启动
         from fusion_engine import FusionEngine
+
         fusion = FusionEngine(event_bus=bus, config_manager=cfg_mgr)
-        fusion.start(); stoppables.append(fusion)
+        fusion.start()
+        stoppables.append(fusion)
 
         # 合成态势（显式开启，或在无引擎时自动开启以便雷达有内容）
         if args.simulate or args.no_engines:
             simulator = _Simulator(bus)
-            simulator.start(); stoppables.append(simulator)
+            simulator.start()
+            stoppables.append(simulator)
 
     # Web 看板（阻塞运行；uvicorn 接管 Ctrl+C 信号）
     from web_server import WebServer
+
     server = WebServer(event_bus=bus, config_manager=cfg_mgr, host=args.host, port=args.port)
 
     _LOGGER.info("=" * 60)
@@ -170,7 +205,7 @@ def main() -> None:
     _LOGGER.info("=" * 60)
 
     try:
-        server.run()   # 阻塞，直到收到 SIGINT
+        server.run()  # 阻塞，直到收到 SIGINT
     except KeyboardInterrupt:  # pragma: no cover - 双保险
         pass
     finally:

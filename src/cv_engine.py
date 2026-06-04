@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 import numpy as np
@@ -62,12 +62,12 @@ _LOGGER: logging.Logger = logging.getLogger("cv_engine")
 class CVUpdate:
     """单帧视觉解析结果，作为 CV_UPDATE 主题的标准 payload。"""
 
-    x: float                 # 本机世界坐标 X (米)
-    y: float                 # 本机世界坐标 Y (米)
-    z: float                 # 本机世界坐标 Z (米)
-    heading: float           # 朝向角 (度, 0~360)
-    frame_id: int            # 单调递增的帧序号
-    timestamp: float         # 抓取时刻 (time.monotonic, 秒)
+    x: float  # 本机世界坐标 X (米)
+    y: float  # 本机世界坐标 Y (米)
+    z: float  # 本机世界坐标 Z (米)
+    heading: float  # 朝向角 (度, 0~360)
+    frame_id: int  # 单调递增的帧序号
+    timestamp: float  # 抓取时刻 (time.monotonic, 秒)
     confidence: float = 1.0  # 解析置信度 (0.0~1.0)
 
 
@@ -77,6 +77,7 @@ class CVUpdate:
 @dataclass
 class _Region:
     """mss 抓取所需的屏幕区域（左上角偏移 + 宽高）。"""
+
     left: int
     top: int
     width: int
@@ -137,9 +138,7 @@ class CVEngine:
             self._apply_config(self._cfg_mgr.config)
             self._cfg_mgr.register_change_listener(self._on_config_changed)
 
-        _LOGGER.info(
-            "CVEngine 初始化完成 (fps_limit=%d, roi=%s)。", self._fps_limit, self._region
-        )
+        _LOGGER.info("CVEngine 初始化完成 (fps_limit=%d, roi=%s)。", self._fps_limit, self._region)
 
     # -----------------------------------------------------------------
     # 3.1 配置应用 / 热更新响应
@@ -149,8 +148,9 @@ class CVEngine:
         roi = cfg.cv.roi_bbox
         with self._param_lock:
             self._fps_limit = max(1, int(cfg.cv.fps_limit))  # 下限 1，避免除零
-            self._region = _Region(left=int(roi.x), top=int(roi.y),
-                                    width=int(roi.w), height=int(roi.h))
+            self._region = _Region(
+                left=int(roi.x), top=int(roi.y), width=int(roi.w), height=int(roi.h)
+            )
 
     def _on_config_changed(self, cfg: "AppConfig") -> None:
         """ConfigManager 热更新回调：实时刷新抓取参数。"""
@@ -201,15 +201,13 @@ class CVEngine:
             target_dt = 1.0 / fps_limit
 
             try:
-                frame = grab(region)                     # ① 抓取 ROI（BGRA）
-                gray = self._to_gray(frame)              # ② 预处理：灰度化
+                frame = grab(region)  # ① 抓取 ROI（BGRA）
+                gray = self._to_gray(frame)  # ② 预处理：灰度化
                 update = self._mock_ocr_and_parse(gray)  # ③ 解析（当前为 mock 钩子）
                 self._bus.publish(Topic.CV_UPDATE, update)  # ④ 发布事件
             except Exception as exc:  # noqa: BLE001  单帧失败不得中断主循环
                 _LOGGER.exception("CVEngine 单帧处理异常: %s", exc)
-                self._bus.publish(
-                    Topic.SYS_ERROR, {"source": "cv_engine", "error": repr(exc)}
-                )
+                self._bus.publish(Topic.SYS_ERROR, {"source": "cv_engine", "error": repr(exc)})
 
             # ⑤ 精确 sleep 补偿：扣除本帧实际耗时，稳定帧率、降低漂移。
             elapsed = time.monotonic() - loop_start

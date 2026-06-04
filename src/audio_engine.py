@@ -38,7 +38,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Callable, ContextManager, Iterator, List, Optional, Tuple
 
@@ -71,19 +71,19 @@ class AudioTick:
     注：含 np.ndarray 字段，故关闭自动 __eq__（数组比较会产生歧义真值）。
     """
 
-    audio_array: np.ndarray   # 切片音频数据，形状 (frames, channels)，float32
-    timestamp: float          # 抓取时刻 (time.monotonic, 秒)
-    frame_id: int             # 单调递增的切片序号
-    rms: float = 0.0          # 本切片 RMS 能量（便于下游快速分级）
+    audio_array: np.ndarray  # 切片音频数据，形状 (frames, channels)，float32
+    timestamp: float  # 抓取时刻 (time.monotonic, 秒)
+    frame_id: int  # 单调递增的切片序号
+    rms: float = 0.0  # 本切片 RMS 能量（便于下游快速分级）
     is_speech_start: bool = False  # 是否为某次声音事件的起始切片
-    is_speech_end: bool = False    # 是否为某次声音事件的结束切片
+    is_speech_end: bool = False  # 是否为某次声音事件的结束切片
 
 
 # ===========================================================================
 #  二、VAD 状态
 # ===========================================================================
 class _VadState(Enum):
-    IDLE = auto()    # 静默：等待事件起音
+    IDLE = auto()  # 静默：等待事件起音
     ACTIVE = auto()  # 活动：声音事件进行中
 
 
@@ -124,9 +124,7 @@ class AudioEngine:
         """
         self._bus: EventBus = event_bus or EventBus()
         self._cfg_mgr = config_manager or (ConfigManager() if ConfigManager else None)
-        self._recorder_factory: RecorderFactory = (
-            recorder_factory or self._default_recorder_factory
-        )
+        self._recorder_factory: RecorderFactory = recorder_factory or self._default_recorder_factory
 
         # ---- 运行期可变参数（受 _param_lock 保护，配置线程与采集线程并发读写）----
         self._param_lock: threading.Lock = threading.Lock()
@@ -135,9 +133,9 @@ class AudioEngine:
         self._channels: int = 2
         self._energy_threshold: float = 0.015
         self._vad_start_chunks: int = 3
-        self._vad_preroll_chunks: int = 8   # 起音预缓冲长度，保证 >= start_chunks
+        self._vad_preroll_chunks: int = 8  # 起音预缓冲长度，保证 >= start_chunks
         self._vad_silence_chunks: int = 9  # 由静音时长换算而来
-        self._params_dirty: bool = False    # 采样参数变更标志，触发采集设备重开
+        self._params_dirty: bool = False  # 采样参数变更标志，触发采集设备重开
 
         # ---- VAD 状态（仅在采集线程内变更，无需加锁）----
         self._state: _VadState = _VadState.IDLE
@@ -157,8 +155,12 @@ class AudioEngine:
 
         _LOGGER.info(
             "AudioEngine 初始化完成 (sr=%d, chunk=%d, ch=%d, thr=%.4f, start=%d, silence=%d chunks)。",
-            self._sample_rate, self._chunk_size, self._channels,
-            self._energy_threshold, self._vad_start_chunks, self._vad_silence_chunks,
+            self._sample_rate,
+            self._chunk_size,
+            self._channels,
+            self._energy_threshold,
+            self._vad_start_chunks,
+            self._vad_silence_chunks,
         )
 
     # -----------------------------------------------------------------
@@ -174,9 +176,11 @@ class AudioEngine:
         silence_chunks = max(1, math.ceil(float(a.vad_silence_duration_ms) / chunk_ms))
 
         with self._param_lock:
-            if (sample_rate != self._sample_rate
-                    or chunk_size != self._chunk_size
-                    or int(a.channels) != self._channels):
+            if (
+                sample_rate != self._sample_rate
+                or chunk_size != self._chunk_size
+                or int(a.channels) != self._channels
+            ):
                 self._params_dirty = True  # 采样参数变化，需重开采集设备
             self._sample_rate = sample_rate
             self._chunk_size = chunk_size
@@ -191,8 +195,14 @@ class AudioEngine:
         """ConfigManager 热更新回调：实时刷新采集与 VAD 参数。"""
         self._apply_config(cfg)
         with self._param_lock:
-            snap = (self._sample_rate, self._chunk_size, self._channels,
-                    self._energy_threshold, self._vad_start_chunks, self._vad_silence_chunks)
+            snap = (
+                self._sample_rate,
+                self._chunk_size,
+                self._channels,
+                self._energy_threshold,
+                self._vad_start_chunks,
+                self._vad_silence_chunks,
+            )
         _LOGGER.info(
             "AudioEngine 已响应配置热更新 (sr=%d, chunk=%d, ch=%d, thr=%.4f, start=%d, silence=%d)。",
             *snap,
@@ -249,9 +259,7 @@ class AudioEngine:
                         self._process_chunk(self._as_float32(data))
             except Exception as exc:  # noqa: BLE001  设备异常不得使线程静默死亡
                 _LOGGER.exception("音频采集异常: %s", exc)
-                self._bus.publish(
-                    Topic.SYS_ERROR, {"source": "audio_engine", "error": repr(exc)}
-                )
+                self._bus.publish(Topic.SYS_ERROR, {"source": "audio_engine", "error": repr(exc)})
                 # 短暂退避后重试重开，避免在硬件持续异常时空转刷屏。
                 if self._stop_event.wait(timeout=0.5):
                     break
@@ -343,7 +351,10 @@ class AudioEngine:
             channels = self._channels
         self._frame_id += 1
         sentinel: _ChunkRecord = (
-            np.zeros((0, channels), dtype=np.float32), time.monotonic(), self._frame_id, 0.0
+            np.zeros((0, channels), dtype=np.float32),
+            time.monotonic(),
+            self._frame_id,
+            0.0,
         )
         self._emit_tick(sentinel, is_start=False, is_end=True)
         _LOGGER.info("边界闭环：ACTIVE 事件被强制结束（设备重开/停止），已补发 is_end。")
@@ -393,6 +404,7 @@ class AudioEngine:
         """尽力提升当前采集线程优先级（跨平台 best-effort，失败静默）。"""
         try:
             import os
+
             if hasattr(os, "sched_getparam") and hasattr(os, "SCHED_RR"):
                 # POSIX：尝试实时轮转调度（通常需要权限，失败则忽略）。
                 param = os.sched_param(min(10, os.sched_get_priority_max(os.SCHED_RR)))  # type: ignore[attr-defined]
@@ -414,7 +426,9 @@ class AudioEngine:
         取默认扬声器对应的 loopback 麦克风，以指定参数开录。
         """
         if sc is None:
-            raise RuntimeError("soundcard 未安装，无法进行环回采集（可注入 recorder_factory 用于测试）")
+            raise RuntimeError(
+                "soundcard 未安装，无法进行环回采集（可注入 recorder_factory 用于测试）"
+            )
 
         speaker = sc.default_speaker()
         # include_loopback=True 取得扬声器的环回采集设备（WASAPI loopback）。
