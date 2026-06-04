@@ -19,6 +19,9 @@ htmlcov/
 logs/*.log
 logs/*.log.*
 
+# ---- 态势录制（保留目录，忽略录像）----
+records/*.jsonl
+
 # ---- IDE ----
 .idea/
 .vscode/

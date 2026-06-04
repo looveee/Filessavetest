@@ -21,6 +21,8 @@ from .fusion_engine import (
     FusionResult,
     MockMapCollider,
 )
+from .event_logger import EventLogger
+from .event_replayer import EventReplayer
 
 __all__ = [
     "AppConfig",
@@ -42,4 +44,6 @@ __all__ = [
     "FusionEngine",
     "FusionResult",
     "MockMapCollider",
+    "EventLogger",
+    "EventReplayer",
 ]

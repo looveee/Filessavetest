@@ -103,7 +103,15 @@ def main() -> None:
                         help="注入合成态势（叠加在真实引擎之上）")
     parser.add_argument("--no-engines", action="store_true",
                         help="跳过需要硬件的 CVEngine/AudioEngine，仅跑 Web + 合成态势")
+    parser.add_argument("--record", action="store_true",
+                        help="挂载 EventLogger，将态势流录制到 records/*.jsonl")
+    parser.add_argument("--replay", metavar="FILE",
+                        help="回放指定 .jsonl：禁用真实引擎，重放态势到雷达")
+    parser.add_argument("--speed", type=float, default=1.0,
+                        help="回放速度倍率（配合 --replay，>1 快放，<1 慢放）")
     args = parser.parse_args()
+
+    replay_mode = args.replay is not None
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
@@ -116,30 +124,43 @@ def main() -> None:
 
     stoppables: List = []               # 逆序优雅停止
 
-    # 2) 引擎（按依赖顺序）
-    if not args.no_engines:
-        try:
-            from cv_engine import CVEngine
-            from audio_engine import AudioEngine
-            cv = CVEngine(event_bus=bus, config_manager=cfg_mgr)
-            audio = AudioEngine(event_bus=bus, config_manager=cfg_mgr)
-            cv.start(); stoppables.append(cv)
-            audio.start(); stoppables.append(audio)
-        except Exception as exc:  # noqa: BLE001  缺少硬件/依赖时降级为仅 Web
-            _LOGGER.warning("CV/Audio 引擎启动失败（缺硬件/依赖？），降级运行: %s", exc)
+    # 录制器最先挂载并订阅，确保从第一个事件起就被完整捕获。
+    if args.record:
+        from event_logger import EventLogger
+        logger = EventLogger(event_bus=bus)
+        logger.start(); stoppables.append(logger)
+        _LOGGER.info("录制已挂载 -> %s", logger.path)
 
-    # FusionEngine 纯计算，始终启动
-    from fusion_engine import FusionEngine
-    fusion = FusionEngine(event_bus=bus, config_manager=cfg_mgr)
-    fusion.start(); stoppables.append(fusion)
+    if replay_mode:
+        # ===== 回放模式：禁用真实引擎/融合/合成，直接重放录制流到总线 =====
+        from event_replayer import EventReplayer
+        replayer = EventReplayer(args.replay, event_bus=bus, speed_multiplier=args.speed)
+        replayer.start(); stoppables.append(replayer)
+        _LOGGER.info("回放模式：重放 %s（speed=%.2fx）", args.replay, args.speed)
+    else:
+        # ===== 实时模式：按依赖顺序拉起引擎 =====
+        if not args.no_engines:
+            try:
+                from cv_engine import CVEngine
+                from audio_engine import AudioEngine
+                cv = CVEngine(event_bus=bus, config_manager=cfg_mgr)
+                audio = AudioEngine(event_bus=bus, config_manager=cfg_mgr)
+                cv.start(); stoppables.append(cv)
+                audio.start(); stoppables.append(audio)
+            except Exception as exc:  # noqa: BLE001  缺少硬件/依赖时降级为仅 Web
+                _LOGGER.warning("CV/Audio 引擎启动失败（缺硬件/依赖？），降级运行: %s", exc)
 
-    # 3) 合成态势（显式开启，或在无引擎时自动开启以便雷达有内容）
-    simulator = None
-    if args.simulate or args.no_engines:
-        simulator = _Simulator(bus)
-        simulator.start(); stoppables.append(simulator)
+        # FusionEngine 纯计算，始终启动
+        from fusion_engine import FusionEngine
+        fusion = FusionEngine(event_bus=bus, config_manager=cfg_mgr)
+        fusion.start(); stoppables.append(fusion)
 
-    # 4) Web 看板（阻塞运行；uvicorn 接管 Ctrl+C 信号）
+        # 合成态势（显式开启，或在无引擎时自动开启以便雷达有内容）
+        if args.simulate or args.no_engines:
+            simulator = _Simulator(bus)
+            simulator.start(); stoppables.append(simulator)
+
+    # Web 看板（阻塞运行；uvicorn 接管 Ctrl+C 信号）
     from web_server import WebServer
     server = WebServer(event_bus=bus, config_manager=cfg_mgr, host=args.host, port=args.port)
 
