@@ -93,6 +93,8 @@ class FusionConfig:
     gcc_interp: int = 4                   # GCC-PHAT 上采样倍数，提升 TDE 亚采样分辨率
     # --- Mock 碰撞体 ---
     collider_distance_m: float = 20.0     # MockMapCollider 假想墙距离 (米)
+    # --- 真实 3D 网格碰撞体 ---
+    map_model_path: str = ""              # 地图模型路径(.obj/.stl 等); 非空时启用 TrimeshCollider
 
 
 

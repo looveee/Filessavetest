@@ -23,6 +23,7 @@ from .fusion_engine import (
 )
 from .event_logger import EventLogger
 from .event_replayer import EventReplayer
+from .mesh_collider import TrimeshCollider
 
 __all__ = [
     "AppConfig",
@@ -46,4 +47,5 @@ __all__ = [
     "MockMapCollider",
     "EventLogger",
     "EventReplayer",
+    "TrimeshCollider",
 ]

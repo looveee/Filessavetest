@@ -267,6 +267,7 @@ class FusionEngine:
             distance=self._collider_distance
         )
         self._external_collider: bool = collider is not None  # 注入的碰撞体不被配置覆盖
+        self._loaded_model_path: str = ""   # 已加载的网格模型路径（用于"只加载一次"判定）
 
         self._started: bool = False
 
@@ -286,9 +287,15 @@ class FusionEngine:
     def _apply_config(self, cfg: "AppConfig") -> None:
         """从配置快照刷新融合参数、DSP 参数与（非注入的）碰撞体。"""
         f = cfg.fusion
+        wall_dist = float(f.collider_distance_m)
+        model_path = str(getattr(f, "map_model_path", "") or "").strip()
+
+        # 碰撞体决策（含可能较慢的网格加载）放在锁外，避免长时间持锁阻塞回调。
+        new_collider = self._resolve_collider(model_path, wall_dist)
+
         with self._lock:
             self._min_confidence = float(f.min_confidence)
-            self._collider_distance = float(f.collider_distance_m)
+            self._collider_distance = wall_dist
             # 刷新 GCC-PHAT 处理器参数（采样率取自 audio 配置，保证与采集端一致）。
             p = self._processor
             p.sample_rate = int(cfg.audio.sample_rate)
@@ -297,8 +304,39 @@ class FusionEngine:
             p.band_lowcut_hz = float(f.band_lowcut_hz)
             p.band_highcut_hz = float(f.band_highcut_hz)
             p.interp = max(1, int(f.gcc_interp))
-            if not self._external_collider:
-                self._collider = FixedDistanceWallCollider(distance=self._collider_distance)
+            if new_collider is not None:
+                self._collider = new_collider
+
+    def _resolve_collider(self, model_path: str, wall_dist: float) -> Optional[MockMapCollider]:
+        """决定是否需要替换碰撞体。返回新碰撞体，或 None 表示沿用当前。
+
+        - 注入式碰撞体：永不被配置覆盖。
+        - 配了模型路径：仅在路径变化时加载一次 TrimeshCollider；加载失败回退假想墙。
+        - 未配模型：使用假想墙。
+        """
+        if self._external_collider:
+            return None
+
+        if model_path:
+            # 已加载同一模型则复用，满足"只加载一次"。
+            if model_path == self._loaded_model_path and isinstance(self._collider, MockMapCollider):
+                from mesh_collider import TrimeshCollider  # 局部导入，避免循环依赖
+                if isinstance(self._collider, TrimeshCollider):
+                    return None
+            try:
+                from mesh_collider import TrimeshCollider
+                collider = TrimeshCollider(model_path)
+                self._loaded_model_path = model_path
+                _LOGGER.info("FusionEngine 启用真实网格碰撞体: %s", model_path)
+                return collider
+            except Exception as exc:  # noqa: BLE001  加载失败不得致命，回退假想墙
+                _LOGGER.error("加载地图网格失败 (%s)，回退假想墙: %s", model_path, exc)
+                self._loaded_model_path = ""
+                return FixedDistanceWallCollider(distance=wall_dist)
+
+        # 未配模型：假想墙（保留旧行为）。
+        self._loaded_model_path = ""
+        return FixedDistanceWallCollider(distance=wall_dist)
 
     def _on_config_changed(self, cfg: "AppConfig") -> None:
         self._apply_config(cfg)
@@ -380,7 +418,10 @@ class FusionEngine:
             )
 
             origin = np.array([float(cv.x), float(cv.y), float(cv.z)], dtype=np.float64)
-            hit = self._collider.raycast(origin, direction)
+            # 在锁内仅快照碰撞体引用，射线求交（可能较慢）放到锁外执行。
+            with self._lock:
+                collider = self._collider
+            hit = collider.raycast(origin, direction)
             if hit is None:
                 _LOGGER.debug("射线未命中任何碰撞体，跳过。")
                 return
