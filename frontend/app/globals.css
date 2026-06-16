@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f6f7f9;
+}
+
+html, body {
+  background: var(--bg);
+  color: #0c0f17;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* brutalist buttons */
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 font-semibold border-2 border-ink-900 bg-white shadow-hard-sm transition-transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-none;
+}
+.btn-primary { @apply bg-accent text-white; }
+.btn-dark    { @apply bg-ink-900 text-white; }
+.btn-lime    { @apply bg-lime text-ink-900; }
+.btn-ghost   { @apply bg-transparent shadow-none border-ink-300; }
+
+.input {
+  @apply w-full px-3 py-2 border-2 border-ink-900 bg-white focus:outline-none focus:ring-0 focus:bg-yellow-50;
+}
+
+.card {
+  @apply bg-white border-2 border-ink-900 shadow-hard-sm p-5;
+}
+
+.tag {
+  @apply inline-block px-2 py-0.5 text-xs font-mono border border-ink-900 bg-white;
+}
+
+.badge {
+  @apply inline-block px-2 py-0.5 text-xs font-bold uppercase tracking-wider;
+}
+
+/* Scrollbar minimal */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #0c0f17; }
+::-webkit-scrollbar-track { background: transparent; }

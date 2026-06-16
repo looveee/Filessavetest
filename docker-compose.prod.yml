@@ -1,0 +1,177 @@
+# =============================================================
+# Production docker-compose
+# Differences from dev (docker-compose.yml):
+#   - ONLY nginx publishes ports (80, optional 443)
+#   - backend / worker / frontend / db / redis use `expose:` only
+#     (visible inside the compose network, never bound to host)
+#   - mounts production nginx.prod.conf
+#   - CORS_ORIGINS comes from .env (no "*" default)
+#   - storage volume is mounted READ-ONLY into nginx (assets only;
+#     uploads are not served by nginx at all in prod)
+# =============================================================
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sv_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-shortvideo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # NO ports: declaration. Reachable only inside the compose network.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: sv_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: sv_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Production hard switches — DEBUG=false enables the startup safety
+      # validator; SERVE_STORAGE_DIRECT=false hides /storage so all asset
+      # access must go through /api/assets/{id}/download (auth-checked).
+      DEBUG: "false"
+      SERVE_STORAGE_DIRECT: "false"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shortvideo}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
+      # CORS must be explicit in production. The application's startup
+      # safety validator will refuse to boot if this is "*" or empty.
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be set explicitly in production (no wildcards)}
+      UPLOAD_DIR: /app/storage/uploads
+      ASSETS_DIR: /app/storage/assets
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RL_LOGIN_IP_LIMIT: ${RL_LOGIN_IP_LIMIT:-10}
+      RL_LOGIN_IP_WINDOW: ${RL_LOGIN_IP_WINDOW:-60}
+      RL_LOGIN_USER_LIMIT: ${RL_LOGIN_USER_LIMIT:-10}
+      RL_LOGIN_USER_WINDOW: ${RL_LOGIN_USER_WINDOW:-300}
+      RL_REGISTER_IP_LIMIT: ${RL_REGISTER_IP_LIMIT:-10}
+      RL_REGISTER_IP_WINDOW: ${RL_REGISTER_IP_WINDOW:-3600}
+      RL_LOOKUP_IP_LIMIT: ${RL_LOOKUP_IP_LIMIT:-30}
+      RL_LOOKUP_IP_WINDOW: ${RL_LOOKUP_IP_WINDOW:-60}
+    volumes:
+      - ./storage:/app/storage
+    expose:
+      - "8000"
+    # entrypoint.sh runs `alembic upgrade head` (idempotent) then exec
+    # uvicorn. Any extra args here are forwarded to uvicorn. If migration
+    # fails, `set -e` kills the container — we never serve traffic against
+    # an out-of-date schema.
+    command: ["./entrypoint.sh", "--proxy-headers", "--forwarded-allow-ips", "*"]
+
+  worker:
+    build:
+      context: ./backend
+    container_name: sv_worker
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shortvideo}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-}
+      UPLOAD_DIR: /app/storage/uploads
+      ASSETS_DIR: /app/storage/assets
+    volumes:
+      - ./storage:/app/storage
+    command: ["celery", "-A", "app.celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: sv_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE: ""
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: sv_nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+      # Uncomment once you've added certs:
+      # - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      # storage NOT mounted into nginx in prod — uploads/assets only flow
+      # through the rate-limited, auth-checked download endpoint.
+
+volumes:
+  pgdata:
+  redisdata:

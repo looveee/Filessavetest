@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+.DS_Store
+storage/uploads/*
+storage/assets/*
+!storage/uploads/.gitkeep
+!storage/assets/.gitkeep
+*.log
+
+# Frontend build artifacts.
+# package-lock.json IS committed (Docker/CI build with `npm ci`).
+# Only the TypeScript incremental build cache is ignored.
+*.tsbuildinfo
