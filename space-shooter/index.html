@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>太空射击 · 阶段 1</title>
+  <style>
+    /* ===== 页面外观：把整个页面做成一台"太空街机" ===== */
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #0b1020;               /* 深蓝黑，像太空 */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #cdd6f4;
+    }
+    h1 {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      margin: 16px 0 0;
+      color: #7cf6a0;
+    }
+    /* 游戏画布：加一圈边框和光晕，让它更像一块发光的屏幕 */
+    canvas {
+      background: #05070f;
+      border: 2px solid #313866;
+      border-radius: 10px;
+      box-shadow: 0 0 40px rgba(80, 100, 200, 0.25);
+      max-width: 100%;
+      height: auto;                      /* 屏幕窄时按比例缩小 */
+      touch-action: none;                /* 防止手机上误触滚动 */
+    }
+    .hint {
+      font-size: 13px;
+      opacity: 0.7;
+      margin: 0 0 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>太空射击 · 阶段 1</h1>
+
+  <!-- canvas（画布）是一块可以用代码作画的区域，游戏所有画面都画在它上面 -->
+  <canvas id="game" width="480" height="720"></canvas>
+
+  <p class="hint">用 ← → ↑ ↓ 或 W A S D 移动飞船</p>
+
+  <script>
+    // ============================================================
+    //  太空射击 · 阶段 1：让画面动起来，并能操控一架飞船
+    //  （这一整段就是游戏的"大脑"，下面按步骤讲解）
+    // ============================================================
+
+    // ===== 1. 拿到画布，准备好"画笔" =====
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d"); // ctx 是我们用来在画布上作画的工具
+
+    const WIDTH = canvas.width;   // 画布宽 = 480
+    const HEIGHT = canvas.height; // 画布高 = 720
+
+    // ===== 2. 记录当前哪些按键正被按住 =====
+    // 键盘按下 → 记为 true；松开 → 记为 false。
+    // 这样在游戏循环里就能随时知道"现在该往哪个方向走"。
+    const keys = {};
+    window.addEventListener("keydown", (e) => {
+      keys[e.key.toLowerCase()] = true;
+      // 防止方向键/空格键让整个网页跟着上下滚动
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    // ===== 3. 定义"玩家飞船"这个对象 =====
+    // 用一个普通对象记录飞船的状态：位置、大小、速度。
+    const player = {
+      x: WIDTH / 2,     // 横向位置（从画布正中间开始）
+      y: HEIGHT - 90,   // 纵向位置（靠近底部）
+      size: 20,         // 飞船大小（半个身位的像素数）
+      speed: 5,         // 每一帧移动几像素（数字越大飞得越快）
+    };
+
+    // ===== 4. 星空背景（缓慢向下流动，制造在向前飞的错觉） =====
+    const stars = [];
+    for (let i = 0; i < 70; i++) {
+      stars.push({
+        x: Math.random() * WIDTH,
+        y: Math.random() * HEIGHT,
+        r: Math.random() * 1.6 + 0.4,     // 星星半径（有大有小）
+        speed: Math.random() * 1.2 + 0.3, // 下落速度（有快有慢 → 有层次感）
+      });
+    }
+
+    function updateStars() {
+      for (const s of stars) {
+        s.y += s.speed;          // 每一帧向下移动一点
+        if (s.y > HEIGHT) {      // 掉出屏幕底部后，回到顶部重新落下
+          s.y = 0;
+          s.x = Math.random() * WIDTH;
+        }
+      }
+    }
+
+    function drawStars() {
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.7;     // 让星星有点半透明，柔和一些
+      for (const s of stars) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;       // 用完记得把透明度调回不透明
+    }
+
+    // ===== 5. 更新：根据按键计算飞船的新位置 =====
+    function update() {
+      if (keys["arrowleft"]  || keys["a"]) player.x -= player.speed;
+      if (keys["arrowright"] || keys["d"]) player.x += player.speed;
+      if (keys["arrowup"]    || keys["w"]) player.y -= player.speed;
+      if (keys["arrowdown"]  || keys["s"]) player.y += player.speed;
+
+      // 限制在画布内，别让飞船飞出去
+      const m = player.size;
+      if (player.x < m)           player.x = m;
+      if (player.x > WIDTH - m)   player.x = WIDTH - m;
+      if (player.y < m)           player.y = m;
+      if (player.y > HEIGHT - m)  player.y = HEIGHT - m;
+
+      updateStars();
+    }
+
+    // ===== 6. 画飞船（用一个三角形代表机身，下面加一点尾焰） =====
+    function drawPlayer() {
+      // 机身（朝上的三角形）
+      ctx.fillStyle = "#7cf6a0";
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y - player.size);               // 机头（顶点）
+      ctx.lineTo(player.x - player.size, player.y + player.size); // 左下角
+      ctx.lineTo(player.x + player.size, player.y + player.size); // 右下角
+      ctx.closePath();
+      ctx.fill();
+
+      // 尾焰（朝下的小三角，橙色）
+      ctx.fillStyle = "#ffb347";
+      ctx.beginPath();
+      ctx.moveTo(player.x - 6, player.y + player.size);
+      ctx.lineTo(player.x + 6, player.y + player.size);
+      ctx.lineTo(player.x, player.y + player.size + 12);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ===== 7. 绘制：每一帧先擦掉旧画面，再重新画一遍 =====
+    function draw() {
+      ctx.clearRect(0, 0, WIDTH, HEIGHT); // 擦掉上一帧留下的画面
+      drawStars();
+      drawPlayer();
+    }
+
+    // ===== 8. 游戏主循环：更新 → 绘制 → 请浏览器再画下一帧 =====
+    // requestAnimationFrame 会让浏览器每秒大约调用 loop 60 次，
+    // 连续的 60 张画面看起来就成了流畅的动画。
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    loop(); // 启动游戏！
+  </script>
+</body>
+</html>
